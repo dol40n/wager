@@ -52,10 +52,33 @@ export function BetDetail({ bet }: { bet: BetDetailData }) {
   const [disputeReason, setDisputeReason] = useState("");
   const [disputeWallet, setDisputeWallet] = useState("");
   const [loading, setLoading] = useState(false);
+  const [syncing, setSyncing] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
 
   const blinkUrl = `${APP_URL}/api/actions/bet/${bet.id}`;
   const stakeSol = lamportsToSol(Number(bet.stakeLamports));
+
+  async function handleSync() {
+    setSyncing(true);
+    try {
+      const res = await fetch(`/api/bets/${bet.id}/sync`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({}),
+      });
+      const data = await res.json();
+      if (res.ok && data.synced) {
+        setMessage(`Synced: ${data.updates?.join(", ") || "no changes"}`);
+        window.location.reload();
+      } else {
+        setMessage(data.error || "Sync failed — admin API key required");
+      }
+    } catch {
+      setMessage("Sync request failed");
+    } finally {
+      setSyncing(false);
+    }
+  }
 
   async function handleDispute() {
     setLoading(true);
@@ -216,27 +239,76 @@ export function BetDetail({ bet }: { bet: BetDetailData }) {
         </CardContent>
       </Card>
 
-      {bet.status === "OPEN" && bet.makerFunded && (
+      {bet.status === "OPEN" && (
         <Card>
           <CardHeader>
-            <CardTitle className="text-base">Blink Link</CardTitle>
+            <CardTitle className="text-base">
+              {bet.makerFunded ? "Share & Accept" : "Next Step: Fund Escrow"}
+            </CardTitle>
           </CardHeader>
-          <CardContent>
-            <div className="flex items-center gap-2">
-              <code className="flex-1 text-xs bg-muted p-2 rounded overflow-x-auto">
-                {blinkUrl}
-              </code>
-              <Button
-                variant="outline"
-                size="icon"
-                onClick={() => navigator.clipboard.writeText(blinkUrl)}
-              >
-                <Copy className="h-4 w-4" />
-              </Button>
-            </div>
-            <p className="text-xs text-muted-foreground mt-2">
-              Share this link for the taker to accept the wager via Solana Blink.
+          <CardContent className="space-y-3">
+            {!bet.makerFunded && (
+              <>
+                <Alert>
+                  <AlertDescription>
+                    The maker must fund the escrow on-chain before a taker can accept.
+                    Use the Sync button below after signing the <code>initialize_bet</code> and <code>fund_maker</code> transactions.
+                  </AlertDescription>
+                </Alert>
+                <p className="text-xs text-muted-foreground">
+                  Maker wallet: <code>{shortenAddress(bet.maker.pubkey, 6)}</code>
+                </p>
+              </>
+            )}
+            {bet.makerFunded && (
+              <>
+                <p className="text-sm">
+                  Escrow funded. Share the Blink link below with a taker.
+                </p>
+                <div className="flex items-center gap-2">
+                  <code className="flex-1 text-xs bg-muted p-2 rounded overflow-x-auto">
+                    {blinkUrl}
+                  </code>
+                  <Button
+                    variant="outline"
+                    size="icon"
+                    onClick={() => navigator.clipboard.writeText(blinkUrl)}
+                  >
+                    <Copy className="h-4 w-4" />
+                  </Button>
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  The taker opens this link, connects a devnet wallet, and signs the <code>accept_bet</code> transaction.
+                </p>
+              </>
+            )}
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleSync}
+              disabled={syncing}
+            >
+              {syncing ? "Syncing..." : "Sync From Chain"}
+            </Button>
+          </CardContent>
+        </Card>
+      )}
+
+      {bet.status === "ACCEPTED" && (
+        <Card>
+          <CardContent className="pt-6">
+            <p className="text-sm text-muted-foreground">
+              Both sides funded. Waiting for the deadline to pass so the resolver can propose a result.
             </p>
+            <Button
+              variant="outline"
+              size="sm"
+              className="mt-3"
+              onClick={handleSync}
+              disabled={syncing}
+            >
+              {syncing ? "Syncing..." : "Sync From Chain"}
+            </Button>
           </CardContent>
         </Card>
       )}

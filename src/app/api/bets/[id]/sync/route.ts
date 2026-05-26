@@ -13,14 +13,18 @@ export async function POST(
   request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  if (!validateAdminAuth(request)) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  const { id } = await params;
+  const isAdmin = validateAdminAuth(request);
 
   try {
-    const { id } = await params;
     const body = await request.json().catch(() => ({}));
     const forcedStatus = body.status as string | undefined;
+    const forcedTaker = body.taker_pubkey as string | undefined;
+
+    // Forced status/taker overrides require admin auth
+    if ((forcedStatus || forcedTaker) && !isAdmin) {
+      return NextResponse.json({ error: "Admin auth required for status override" }, { status: 401 });
+    }
 
     const bet = await prisma.bet.findUnique({ where: { id } });
     if (!bet) {
@@ -37,27 +41,64 @@ export async function POST(
 
     const vaultBalance = await connection.getBalance(vaultPDA);
     const dbStatusBefore = bet.status;
-
     const updates: Record<string, unknown> = {};
 
-    if (forcedStatus) {
+    // Admin forced overrides
+    if (forcedStatus && isAdmin) {
       updates.status = forcedStatus;
     }
-
-    if (vaultBalance >= Number(bet.stakeLamports) && !bet.makerFunded) {
-      updates.makerFunded = true;
-    }
-
-    if (body.taker_pubkey && !bet.takerId) {
-      let takerWallet = await prisma.userWallet.findUnique({
-        where: { pubkey: body.taker_pubkey },
-      });
+    if (forcedTaker && isAdmin && !bet.takerId) {
+      let takerWallet = await prisma.userWallet.findUnique({ where: { pubkey: forcedTaker } });
       if (!takerWallet) {
-        takerWallet = await prisma.userWallet.create({
-          data: { pubkey: body.taker_pubkey },
-        });
+        takerWallet = await prisma.userWallet.create({ data: { pubkey: forcedTaker } });
       }
       updates.takerId = takerWallet.id;
+    }
+
+    // Chain-read sync (no admin needed)
+    if (!forcedStatus) {
+      // Detect makerFunded from vault balance
+      if (vaultBalance >= Number(bet.stakeLamports) && !bet.makerFunded) {
+        updates.makerFunded = true;
+      }
+
+      // Read on-chain account to detect status + taker
+      const accountInfo = await connection.getAccountInfo(betPDA);
+      if (accountInfo && accountInfo.data.length > 100) {
+        const data = accountInfo.data;
+        let offset = 8 + 32 + 32; // disc + hash + maker
+        const takerFlag = data[offset];
+        let takerPubkey: string | null = null;
+        if (takerFlag === 1) {
+          takerPubkey = new PublicKey(data.subarray(offset + 1, offset + 33)).toBase58();
+        }
+        offset += takerFlag === 1 ? 33 : 1; // taker
+        const allowedFlag = data[offset];
+        offset += allowedFlag === 1 ? 33 : 1; // allowed_taker
+        offset += 1; // maker_side
+        offset += 8; // stake
+        offset += 8; // deadline
+        offset += 8; // dispute_deadline
+        const statusByte = data[offset];
+
+        const STATUS_MAP: Record<number, string> = {
+          0: "OPEN", 1: "ACCEPTED", 2: "RESULT_PROPOSED",
+          3: "DISPUTED", 4: "FINALIZED", 5: "CANCELLED", 6: "REFUNDED",
+        };
+        const chainStatus = STATUS_MAP[statusByte];
+
+        if (chainStatus && chainStatus !== bet.status) {
+          updates.status = chainStatus;
+        }
+
+        if (takerPubkey && !bet.takerId) {
+          let takerWallet = await prisma.userWallet.findUnique({ where: { pubkey: takerPubkey } });
+          if (!takerWallet) {
+            takerWallet = await prisma.userWallet.create({ data: { pubkey: takerPubkey } });
+          }
+          updates.takerId = takerWallet.id;
+        }
+      }
     }
 
     if (Object.keys(updates).length > 0) {
@@ -68,7 +109,7 @@ export async function POST(
       bet_id: id,
       synced: true,
       db_status_before: dbStatusBefore,
-      db_status_after: forcedStatus || dbStatusBefore,
+      db_status_after: (updates.status as string) || dbStatusBefore,
       vault_balance_lamports: vaultBalance,
       updates: Object.keys(updates),
     });
