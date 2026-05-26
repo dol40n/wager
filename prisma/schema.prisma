@@ -1,0 +1,116 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum BetStatus {
+  OPEN
+  ACCEPTED
+  RESULT_PROPOSED
+  DISPUTED
+  FINALIZED
+  CANCELLED
+  REFUNDED
+}
+
+enum BetSide {
+  YES
+  NO
+}
+
+enum ResolutionMethod {
+  API
+  WEB_RESEARCH
+  AI_EVIDENCE
+  MANUAL_REVIEW
+}
+
+model UserWallet {
+  id        String   @id @default(cuid())
+  pubkey    String   @unique
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  makerBets Bet[]     @relation("MakerBets")
+  takerBets Bet[]     @relation("TakerBets")
+  disputes  Dispute[]
+}
+
+model Bet {
+  id                  String           @id @default(cuid())
+  onChainAddress      String?          @unique
+  betIdHash           String           @unique
+  originalText        String
+  normalizedQuestion  String
+  category            String
+  yesDefinition       String
+  noDefinition        String
+  deadlineUtc         DateTime
+  resolutionSources   String[]
+  resolutionMethod    ResolutionMethod
+  objectiveCriteria   String[]
+  ambiguityScore      Float
+  ambiguityNotes      String[]
+  makerSide           BetSide
+  stakeLamports       BigInt
+  feeBps              Int              @default(100)
+  status              BetStatus        @default(OPEN)
+  makerFunded         Boolean          @default(false)
+  proposedWinner      BetSide?
+  finalWinner         BetSide?
+  evidenceHash        String?
+  disputeDeadlineUtc  DateTime?
+  resolverConfidence  Float?
+  needsManualReview   Boolean          @default(false)
+  allowedTaker        String?
+
+  makerId String
+  maker   UserWallet @relation("MakerBets", fields: [makerId], references: [id])
+
+  takerId String?
+  taker   UserWallet? @relation("TakerBets", fields: [takerId], references: [id])
+
+  evidence     ResolutionEvidence[]
+  disputes     Dispute[]
+  transactions Transaction[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model ResolutionEvidence {
+  id                  String   @id @default(cuid())
+  betId               String
+  bet                 Bet      @relation(fields: [betId], references: [id])
+  sourceUrl           String
+  sourceName          String
+  publishedOrObserved DateTime?
+  relevantExcerpt     String
+  supports            String
+  explanation         String
+  createdAt           DateTime @default(now())
+}
+
+model Dispute {
+  id        String   @id @default(cuid())
+  betId     String
+  bet       Bet      @relation(fields: [betId], references: [id])
+  filedBy   String
+  wallet    UserWallet @relation(fields: [filedBy], references: [id])
+  reason    String
+  createdAt DateTime @default(now())
+}
+
+model Transaction {
+  id        String   @id @default(cuid())
+  betId     String
+  bet       Bet      @relation(fields: [betId], references: [id])
+  txHash    String
+  type      String
+  status    String
+  createdAt DateTime @default(now())
+}
