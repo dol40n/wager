@@ -73,7 +73,7 @@ Winner receives 99% of the pot. 1% goes to the platform fee.
 
 ## 8. Report Bugs
 
-Click the **Report Bug** link in the header, or describe the issue with:
+If the **Report Bug** link is visible in the app header, use it. Otherwise contact the team directly. Include:
 - What you did (step by step)
 - What happened
 - What you expected

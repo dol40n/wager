@@ -144,7 +144,7 @@ If something goes wrong:
 
 ## Bug Reports
 
-File issues with:
+Use the **Report Bug** link in the app header (if configured), or contact the team directly. Include:
 - **What happened**: exact steps to reproduce
 - **What you expected**: correct behavior
 - **Wallet**: your pubkey (devnet only)

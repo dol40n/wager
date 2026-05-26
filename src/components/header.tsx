@@ -3,6 +3,8 @@
 import Link from "next/link";
 import { AlertTriangle, Bug } from "lucide-react";
 
+const BUG_REPORT_URL = process.env.NEXT_PUBLIC_BUG_REPORT_URL;
+
 export function Header() {
   return (
     <header className="border-b">
@@ -23,15 +25,17 @@ export function Header() {
           <Link href="/admin" className="hover:text-primary">
             Admin
           </Link>
-          <a
-            href="https://github.com/anthropics/claude-code/issues"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="hover:text-primary flex items-center gap-1"
-          >
-            <Bug className="h-3.5 w-3.5" />
-            Report Bug
-          </a>
+          {BUG_REPORT_URL && (
+            <a
+              href={BUG_REPORT_URL}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="hover:text-primary flex items-center gap-1"
+            >
+              <Bug className="h-3.5 w-3.5" />
+              Report Bug
+            </a>
+          )}
         </nav>
       </div>
       <div className="bg-warning/10 border-b border-warning/30 px-4 py-1.5 text-center text-xs text-warning-foreground flex items-center justify-center gap-1.5">
