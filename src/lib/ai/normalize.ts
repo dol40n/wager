@@ -58,8 +58,10 @@ Resolution source rules:
 
 PRICE RULES (CRITICAL):
 - NEVER invent, guess, or look up a "current price" to use as a threshold. You do not have access to live market data.
-- If the user says "current price", "at current level", "from now", set should_reject = true with rejection_reason = "Current price wagers require a backend price snapshot. Please specify an explicit price target, or the system will fetch the current price automatically."
+- If the user says "current price", "at current level", "from now", or implies a comparison to an unspecified reference price, set should_reject = true with rejection_reason = "Missing reference price. Specify an explicit USD target (e.g. 'above $110,000'), or state 'use current price at creation' so the system can fetch a deterministic snapshot."
+- If the wager says "higher" / "выше" / "up" WITHOUT a specific dollar target, it is a missing-reference-price wager. Set should_reject = true with rejection_reason = "Higher than what? Specify an explicit price target or reference point." Add ambiguity_note: "Clarify: use price at interval start, current price at creation, or a fixed USD amount."
 - Words like "approximately", "примерно", "около", "roughly", "around" require an explicit tolerance. Set should_reject = true with rejection_reason = "Approximate conditions need an explicit tolerance (e.g. 'within 5%' or 'within $1000'). Please clarify."
+- ALL dates and times in the output MUST use ISO 8601 UTC format: "2026-05-26T07:20:00Z". Never use localized formats like "26.05.2026 07:20:00" in any field.
 
 Ambiguity rules:
 - Assign ambiguity_score from 0 (perfectly clear) to 1 (completely ambiguous).
