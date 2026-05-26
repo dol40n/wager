@@ -195,73 +195,90 @@ export function CreateBetForm() {
       {step === "review" && normalized && (
         <Card>
           <CardHeader>
-            <CardTitle>Review Normalized Condition</CardTitle>
+            <CardTitle>{normalized.should_reject ? "Wager Needs Changes" : "Review Normalized Condition"}</CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
             {normalized.should_reject && (
-              <Alert variant="destructive">
-                <AlertTriangle className="h-4 w-4" />
-                <AlertTitle>Wager Rejected</AlertTitle>
-                <AlertDescription>
-                  {normalized.rejection_reason}
-                </AlertDescription>
-              </Alert>
+              <>
+                <Alert variant="destructive">
+                  <AlertTriangle className="h-4 w-4" />
+                  <AlertTitle>Cannot Create This Wager</AlertTitle>
+                  <AlertDescription>
+                    {normalized.rejection_reason}
+                  </AlertDescription>
+                </Alert>
+                {normalized.ambiguity_notes.length > 0 && (
+                  <div className="text-sm space-y-1">
+                    <span className="font-medium">To fix, try:</span>
+                    <ul className="list-disc pl-4 text-muted-foreground">
+                      {normalized.ambiguity_notes.map((note, i) => (
+                        <li key={i}>{note}</li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+                <p className="text-sm text-muted-foreground">
+                  Go back and rephrase your wager with a clear condition, specific target,
+                  explicit deadline with year, and your chosen side (e.g. &quot;Bitcoin above
+                  $120,000 on 2026-08-01&quot;).
+                </p>
+              </>
             )}
 
-            {normalized.ambiguity_score > 0.15 && !normalized.should_reject && (
-              <Alert variant="warning">
-                <AlertTriangle className="h-4 w-4" />
-                <AlertTitle>Ambiguity Note (score: {normalized.ambiguity_score.toFixed(2)})</AlertTitle>
-                <AlertDescription>
-                  <ul className="list-disc pl-4 mt-1">
-                    {normalized.ambiguity_notes.map((note, i) => (
-                      <li key={i}>{note}</li>
-                    ))}
-                  </ul>
-                </AlertDescription>
-              </Alert>
-            )}
+            {!normalized.should_reject && (
+              <>
+                {normalized.ambiguity_score > 0.15 && (
+                  <Alert variant="warning">
+                    <AlertTriangle className="h-4 w-4" />
+                    <AlertTitle>Ambiguity Note (score: {normalized.ambiguity_score.toFixed(2)})</AlertTitle>
+                    <AlertDescription>
+                      <ul className="list-disc pl-4 mt-1">
+                        {normalized.ambiguity_notes.map((note, i) => (
+                          <li key={i}>{note}</li>
+                        ))}
+                      </ul>
+                    </AlertDescription>
+                  </Alert>
+                )}
 
-            <div className="space-y-3 text-sm">
-              <div>
-                <span className="font-medium">Normalized Question:</span>
-                <p className="mt-1">{normalized.normalized_question}</p>
-              </div>
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <span className="font-medium">YES means:</span>
-                  <p className="mt-1 text-muted-foreground">
-                    {normalized.yes_definition}
-                  </p>
+                <div className="space-y-3 text-sm">
+                  <div>
+                    <span className="font-medium">Normalized Question:</span>
+                    <p className="mt-1">{normalized.normalized_question}</p>
+                  </div>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <span className="font-medium">YES means:</span>
+                      <p className="mt-1 text-muted-foreground">
+                        {normalized.yes_definition}
+                      </p>
+                    </div>
+                    <div>
+                      <span className="font-medium">NO means:</span>
+                      <p className="mt-1 text-muted-foreground">
+                        {normalized.no_definition}
+                      </p>
+                    </div>
+                  </div>
+                  <div>
+                    <span className="font-medium">Category:</span>{" "}
+                    <span className="capitalize">{normalized.category}</span>
+                  </div>
+                  <div>
+                    <span className="font-medium">Deadline (UTC):</span>{" "}
+                    {new Date(normalized.deadline_utc).toLocaleString("en-US", {
+                      timeZone: "UTC",
+                      year: "numeric", month: "short", day: "numeric",
+                      hour: "2-digit", minute: "2-digit", timeZoneName: "short",
+                    })}
+                  </div>
+                  <div>
+                    <span className="font-medium">Resolution Source:</span>{" "}
+                    {normalized.resolution_sources.join(", ")}
+                  </div>
                 </div>
-                <div>
-                  <span className="font-medium">NO means:</span>
-                  <p className="mt-1 text-muted-foreground">
-                    {normalized.no_definition}
-                  </p>
-                </div>
-              </div>
-              <div>
-                <span className="font-medium">Category:</span>{" "}
-                <span className="capitalize">{normalized.category}</span>
-              </div>
-              <div>
-                <span className="font-medium">Deadline:</span>{" "}
-                {normalized.deadline_utc}
-              </div>
-              <div>
-                <span className="font-medium">Resolution Sources:</span>
-                <ul className="list-disc pl-4 mt-1">
-                  {normalized.resolution_sources.map((s, i) => (
-                    <li key={i}>{s}</li>
-                  ))}
-                </ul>
-              </div>
-              <div>
-                <span className="font-medium">Resolution Method:</span>{" "}
-                {normalized.resolution_method}
-              </div>
-            </div>
+              </>
+            )}
 
             <div className="flex gap-2">
               <Button

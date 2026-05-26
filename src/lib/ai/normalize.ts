@@ -56,6 +56,11 @@ Resolution source rules:
 - For sports, use ESPN. For elections, use official government sites.
 - Do NOT list multiple sources unless you define explicit fallback order.
 
+PRICE RULES (CRITICAL):
+- NEVER invent, guess, or look up a "current price" to use as a threshold. You do not have access to live market data.
+- If the user says "current price", "at current level", "from now", set should_reject = true with rejection_reason = "Current price wagers require a backend price snapshot. Please specify an explicit price target, or the system will fetch the current price automatically."
+- Words like "approximately", "примерно", "около", "roughly", "around" require an explicit tolerance. Set should_reject = true with rejection_reason = "Approximate conditions need an explicit tolerance (e.g. 'within 5%' or 'within $1000'). Please clarify."
+
 Ambiguity rules:
 - Assign ambiguity_score from 0 (perfectly clear) to 1 (completely ambiguous).
 - If ambiguity_score > 0.25, set should_reject = true with rejection_reason explaining what needs clarification.
