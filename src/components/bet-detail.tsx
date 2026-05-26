@@ -161,13 +161,25 @@ export function BetDetail({ bet }: { bet: BetDetailData }) {
           </div>
 
           {bet.proposedWinner && (
-            <div className="text-sm">
-              <span className="font-medium">Proposed Winner:</span>{" "}
-              {bet.proposedWinner}
-              {bet.resolverConfidence !== null && (
-                <span className="text-muted-foreground">
-                  {" "}(confidence: {(bet.resolverConfidence * 100).toFixed(0)}%)
-                </span>
+            <div className="text-sm space-y-1">
+              <div>
+                <span className="font-medium">Proposed Winner:</span>{" "}
+                {bet.proposedWinner}
+                {bet.resolverConfidence !== null && (
+                  <span className="text-muted-foreground">
+                    {" "}(confidence: {(bet.resolverConfidence * 100).toFixed(0)}%)
+                  </span>
+                )}
+              </div>
+              {bet.resolverConfidence !== null && bet.resolverConfidence < 0.8 && (
+                <p className="text-xs text-warning-foreground">
+                  Low confidence — flagged for admin review. AI was not certain enough to auto-resolve.
+                </p>
+              )}
+              {bet.needsManualReview && (
+                <p className="text-xs text-destructive">
+                  This bet requires manual admin review before payout.
+                </p>
               )}
             </div>
           )}
@@ -189,9 +201,16 @@ export function BetDetail({ bet }: { bet: BetDetailData }) {
           )}
 
           {bet.disputeDeadlineUtc && (
-            <div className="text-sm">
-              <span className="font-medium">Dispute Deadline:</span>{" "}
-              {formatDeadline(bet.disputeDeadlineUtc)}
+            <div className="text-sm space-y-1">
+              <div>
+                <span className="font-medium">Dispute Deadline:</span>{" "}
+                {formatDeadline(bet.disputeDeadlineUtc)}
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Either party can dispute the proposed result within 24 hours.
+                If no dispute is filed, the payout finalizes automatically.
+                Winner receives 99% of the pot; 1% goes to the platform fee wallet.
+              </p>
             </div>
           )}
         </CardContent>

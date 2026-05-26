@@ -98,6 +98,18 @@ export function CreateBetForm() {
         </Alert>
       )}
 
+      <Alert variant="warning">
+        <AlertTriangle className="h-4 w-4" />
+        <AlertDescription>
+          This platform uses <strong>devnet SOL only</strong> (test tokens with no real value).
+          Ensure your wallet is set to Solana Devnet. Get free test SOL at{" "}
+          <a href="https://faucet.solana.com" target="_blank" rel="noopener noreferrer" className="underline">
+            faucet.solana.com
+          </a>.
+          Max stake: 10 SOL. 1% platform fee. 24-hour dispute window before payout.
+        </AlertDescription>
+      </Alert>
+
       {step === "input" && (
         <Card>
           <CardHeader>

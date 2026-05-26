@@ -1,0 +1,15 @@
+.anchor
+.claude
+.claude-flow
+.mcp.json
+programs
+target/debug
+target/release
+target/sbf-solana-solana
+target/sbpf-solana-solana
+target/deploy
+Cargo.toml
+Cargo.lock
+Dockerfile
+tests/anchor
+scripts
