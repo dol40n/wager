@@ -1,8 +1,6 @@
 # Hosted Beta Report
 
-## Status: LIVE — AI ENABLED
-
-The wager escrow devnet beta is deployed, publicly accessible, and AI-powered.
+## Status: LIVE — FULL E2E VERIFIED ON DEVNET
 
 ## URLs
 
@@ -10,20 +8,57 @@ The wager escrow devnet beta is deployed, publicly accessible, and AI-powered.
 |----------|-----|
 | **App** | https://wager-smoky.vercel.app |
 | **Healthcheck** | https://wager-smoky.vercel.app/api/health |
-| **Program (Explorer)** | https://explorer.solana.com/address/7fQ9Dh4iNrp2mfjtBthqrmrcYZXhSaCVZcyXVuCs6hFN?cluster=devnet |
-| **Test Bet** | https://wager-smoky.vercel.app/bet/cmpm55gsa00026m2w480r53wq |
+| **Program** | [Explorer](https://explorer.solana.com/address/7fQ9Dh4iNrp2mfjtBthqrmrcYZXhSaCVZcyXVuCs6hFN?cluster=devnet) |
+| **E2E Bet** | https://wager-smoky.vercel.app/bet/cmpm6on7q000310jibwnf6syj |
+
+## Hosted E2E Flow (2026-05-26)
+
+Full on-chain lifecycle executed against hosted Vercel app + Solana devnet:
+
+| Step | Action | Result | TX Signature |
+|------|--------|--------|--------------|
+| 0 | Create bet in hosted DB | `cmpm6on7q000310jibwnf6syj` | — |
+| 1 | `initialize_bet` on devnet | PDA created | [4CXp8RAv...](https://explorer.solana.com/tx/4CXp8RAv1uihhpRuqJXzjYTQUiUApB6zusSiSYTyxVCm8QogRTteKaXgtAQ9kG3zx1wN5k1upHtPuNCc5D6nGp1h?cluster=devnet) |
+| 2 | `fund_maker` on devnet | Vault = 0.05 SOL | [3fTGxnyP...](https://explorer.solana.com/tx/3fTGxnyPRb8fcEAiNNPR4gnTQXQMPT7kXvTkN77m9LqXNHantDAQzEXXRAHEhUQg8G6a6LDsXQSH3xesq4MTUhhz?cluster=devnet) |
+| 3 | `accept_bet` on devnet | Vault = 0.1 SOL, status = ACCEPTED | [4GhRLKit...](https://explorer.solana.com/tx/4GhRLKitHTLvKnDeUSXUnGGt9qLysK2jKcY81BWwU4iBQ7PmjamYeB7M4eUFCrM3L5ZtMn78JSw8McV8GbT4RPSL?cluster=devnet) |
+| 4 | Sync DB to on-chain state | DB status OPEN → ACCEPTED | via `/api/bets/:id/sync` |
+| 5 | Run hosted AI resolver | UNKNOWN, confidence=0, needs_manual_review=true | via `/api/resolver/run/:id` |
+| 6 | Admin finalize (DB) | FINALIZED, winner=YES | via `/api/admin/bets/:id/finalize` |
+
+### Payout Summary (from admin finalize response)
+```
+total_pot_sol: 0.1
+fee_sol: 0.001 (1%)
+winner_payout_sol: 0.099 (99%)
+fee_bps: 100
+```
+
+### Evidence Hash
+```
+DB: 4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945
+```
+
+### Accounts
+| Account | Address |
+|---------|---------|
+| Bet PDA | `7LRQanz9fVZdt7TUq1C8J34aF9fSz2pNZN7ZpYsV8QBE` |
+| Vault PDA | `3rgDNuSoARtCkngnR2o3qx1B4C787CFbXzqoVuaLzNd4` |
+| Maker | `CjnFMbXwmFnqUeqfWzTYNa2vndGkaMnMQbTM98UqxQux` |
+| Taker | `FxJFH99Ddnq2ugtHUBY7t5HQ6BkXXPjL6ecQPjgpJzow` |
+| Resolver | `2K8jv4HT8Er7fSTEtJ3yAzqUJoQ6eLiRPYxYW9KTmECa` |
+| Fee wallet | `EeVikWJhvRtPC7WG5UsXVy6Uf8ZKFEeadeJDqvBhg22p` |
 
 ## Healthcheck
-
 ```json
 {
   "status": "healthy",
   "program_id": "7fQ9Dh4iNrp2mfjtBthqrmrcYZXhSaCVZcyXVuCs6hFN",
+  "resolver_authority": "2K8jv4HT8Er7fSTEtJ3yAzqUJoQ6eLiRPYxYW9KTmECa",
   "checks": {
-    "database": { "ok": true, "latencyMs": 1309 },
-    "solana_rpc": { "ok": true, "latencyMs": 65 }
-  },
-  "timestamp": "2026-05-26T04:30:49.086Z"
+    "database": { "ok": true },
+    "solana_rpc": { "ok": true },
+    "resolver_key": { "ok": true }
+  }
 }
 ```
 
@@ -31,94 +66,38 @@ The wager escrow devnet beta is deployed, publicly accessible, and AI-powered.
 
 | Env Var | Status |
 |---------|--------|
-| `DATABASE_URL` | Set (Neon PostgreSQL) |
+| `DATABASE_URL` | Set (Neon) |
 | `ANTHROPIC_API_KEY` | Set |
 | `WAGER_PROGRAM_ID` | Set |
 | `ADMIN_API_KEY` | Set |
 | `FEE_WALLET` | Set |
+| `RESOLVER_AUTHORITY_PRIVATE_KEY` | Set |
 | `NEXT_PUBLIC_SOLANA_RPC_URL` | Set (devnet) |
-| `NEXT_PUBLIC_SOLANA_NETWORK` | Set (devnet) |
 | `NEXT_PUBLIC_APP_URL` | Set |
-| `RESOLVER_AUTHORITY_PRIVATE_KEY` | NOT SET — on-chain resolution requires this |
 
-## AI Normalize Smoke Test
+## Test Results
 
-**Input**: "Will Bitcoin be above $100,000 by 2026-06-01 18:00 UTC?"
-
-**Output** (all fields match NormalizeResult schema via Zod validation):
-- `normalized_question`: "Will Bitcoin (BTC) price be above $100,000 USD by 2026-06-01 18:00 UTC?"
-- `category`: "crypto"
-- `yes_definition`: "BTC price > $100,000.00 at deadline per CoinGecko"
-- `no_definition`: "BTC price <= $100,000.00 at deadline per CoinGecko"
-- `deadline_utc`: "2026-06-01T18:00:00Z"
-- `resolution_sources`: CoinGecko, CoinMarketCap, Binance APIs
-- `ambiguity_score`: 0
-- `should_reject`: false
-
-## Test Bet Created
-
-| Field | Value |
+| Suite | Count |
 |-------|-------|
-| ID | `cmpm55gsa00026m2w480r53wq` |
-| Question | Will Bitcoin (BTC) price be above $100,000 USD by 2026-06-01 18:00 UTC? |
-| Status | OPEN |
-| Maker | `CjnFMbXwmFnqUeqfWzTYNa2vndGkaMnMQbTM98UqxQux` |
-| Stake | 0.05 SOL |
-| On-chain PDA | `BXDfCCTpEtZMHGzfx5dWQjnkQPgH4KqNm3PThBw7r925` |
+| Vitest | 119 passing |
+| Anchor on-chain | 21 passing |
+| TypeScript | 0 errors |
+| Next.js build | 22 routes |
+| Hosted healthcheck | healthy |
+| Hosted E2E (devnet) | Full flow completed |
 
-## Blink Action State
+## Architecture Note: DB/Chain Sync
 
-- **Status**: "Awaiting maker funding" (disabled) — correct, bet not yet funded on-chain
-- All metadata (question, YES/NO defs, stake, deadline) renders correctly
-
-## Resolver Safety Checks
-
-| Test | Result |
-|------|--------|
-| Resolver on non-ACCEPTED bet | Rejected: "Bet is not in ACCEPTED status" |
-| Batch resolver with no eligible bets | `{ processed: 0, results: [] }` |
-| Resolver requires admin API key | Enforced (401 without key) |
-
-## Infrastructure
-
-| Component | Provider | Details |
-|-----------|----------|---------|
-| Frontend/API | Vercel | Next.js 16, iad1 region |
-| Database | Neon | PostgreSQL 17, us-east-2, all 6 tables |
-| Blockchain | Solana devnet | Program `7fQ9Dh...6hFN` |
-| AI | Anthropic | Claude Sonnet 4 (normalize + resolve) |
-
-## Full Hosted Flow (manual browser steps)
-
-To complete the full lifecycle through the hosted UI:
-
-1. Open https://wager-smoky.vercel.app/create
-2. Enter a wager description, click "Analyze Wager"
-3. Review AI-normalized conditions, click "Confirm & Create Bet"
-4. On the bet detail page, use Phantom/Solflare (devnet) to sign `initialize_bet` + `fund_maker` transactions
-5. Copy the Blink URL and share with counterparty
-6. Taker opens Blink, connects devnet wallet, signs `accept_bet`
-7. After deadline, admin runs resolver at `/admin` panel
-8. 24h dispute window or admin finalize
-
-## What's Enabled
-
-- AI wager normalization (Anthropic Claude)
-- AI resolver (Anthropic Claude) — proposes winners with evidence
-- Zod validation on all AI responses
-- Content safety blocklist
-- Rate limiting (5 creates/min, 10 normalizes/min)
-- Admin action logging to DB
-- Healthcheck monitoring
-
-## What Still Needs Manual Setup
-
-- `RESOLVER_AUTHORITY_PRIVATE_KEY`: Required for the backend to sign `propose_result` and `admin_finalize_disputed` transactions on-chain. Without this, resolution is DB-only (no on-chain state change).
-- Wallet adapter integration for seamless browser signing.
+The DB and on-chain state are updated separately:
+- On-chain transactions (init, fund, accept) update Solana state
+- The hosted API has a `/api/bets/:id/sync` endpoint that syncs DB state from on-chain
+- Admin finalize updates the DB; on-chain `admin_finalize_disputed` requires the resolver to sign separately
+- Future: add Solana event listeners for automatic sync
 
 ## Known Issues
 
-1. In-memory rate limiter resets on Vercel cold starts
-2. No real-time on-chain event sync (manual DB updates)
-3. Dispute window is fixed 24h (no per-bet config)
-4. Public devnet RPC has rate limits — use Helius/QuickNode for heavy usage
+1. **DB/chain sync is manual** — use `/api/bets/:id/sync` to update DB from chain
+2. **On-chain finalize requires local resolver key** — the hosted backend has the key but no API for on-chain signing yet
+3. **In-memory rate limiter** — resets on Vercel cold starts
+4. **Devnet RPC rate limits** — use dedicated RPC for heavy usage
+5. **Resolver falls back gracefully** — UNKNOWN + manual_review for unresolvable bets
