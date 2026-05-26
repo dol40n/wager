@@ -47,11 +47,29 @@ export async function POST(
       `taker=${bet.taker?.pubkey || "none"}`
     );
 
+    const statusBefore = bet.status;
+
     await prisma.bet.update({
       where: { id },
       data: {
         status: "REFUNDED",
         needsManualReview: false,
+      },
+    });
+
+    await prisma.adminActionLog.create({
+      data: {
+        betId: id,
+        action: "REFUND",
+        adminIdentity: request.headers.get("x-admin-api-key")?.slice(0, 8) + "...",
+        statusBefore,
+        statusAfter: "REFUNDED",
+        evidenceHash: bet.evidenceHash,
+        details: JSON.stringify({
+          stake_sol: stakeSol,
+          maker: bet.maker.pubkey,
+          taker: bet.taker?.pubkey || null,
+        }),
       },
     });
 

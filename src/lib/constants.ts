@@ -34,7 +34,7 @@ export const RATE_LIMIT_MAX_CREATES = 5;
 export const RATE_LIMIT_MAX_NORMALIZES = 10;
 
 export const REJECTED_TOPICS = [
-  "assassination",
+  "assassin",
   "murder",
   "terrorism",
   "child",

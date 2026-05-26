@@ -49,12 +49,31 @@ export async function POST(
       `evidence_hash=${bet.evidenceHash}, db_status=${bet.status}`
     );
 
+    const statusBefore = bet.status;
+
     await prisma.bet.update({
       where: { id },
       data: {
         finalWinner: parsed.winner_side,
         status: "FINALIZED",
         needsManualReview: false,
+      },
+    });
+
+    await prisma.adminActionLog.create({
+      data: {
+        betId: id,
+        action: "FINALIZE",
+        adminIdentity: request.headers.get("x-admin-api-key")?.slice(0, 8) + "...",
+        statusBefore,
+        statusAfter: "FINALIZED",
+        evidenceHash: bet.evidenceHash,
+        details: JSON.stringify({
+          winner_side: parsed.winner_side,
+          pot_sol: pot,
+          fee_sol: fee,
+          payout_sol: payout,
+        }),
       },
     });
 
