@@ -64,6 +64,17 @@ export default function AdminPage() {
   }, [authenticated]);
 
   async function handleFinalize(betId: string, winnerSide: "YES" | "NO") {
+    const bet = bets.find((b) => b.id === betId);
+    const stake = bet ? lamportsToSol(Number(bet.stakeLamports)) : 0;
+    const pot = stake * 2;
+    const fee = pot * 0.01;
+    if (
+      !window.confirm(
+        `Finalize bet ${betId}?\n\nWinner: ${winnerSide}\nPot: ${pot} SOL\nFee (1%): ${fee} SOL\nPayout: ${pot - fee} SOL\n\nThis action is irreversible.`
+      )
+    )
+      return;
+
     setActionLoading(betId);
     setMessage(null);
     try {
@@ -73,11 +84,16 @@ export default function AdminPage() {
           "Content-Type": "application/json",
           "x-admin-api-key": apiKey,
         },
-        body: JSON.stringify({ winner_side: winnerSide }),
+        body: JSON.stringify({
+          winner_side: winnerSide,
+          confirmation: "FINALIZE",
+        }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error);
-      setMessage(`Bet ${betId} finalized: ${winnerSide} wins`);
+      setMessage(
+        `Bet ${betId} finalized: ${winnerSide} wins. Payout: ${data.payout_summary?.winner_payout_sol || "?"} SOL`
+      );
       fetchBets();
     } catch (err) {
       setMessage(err instanceof Error ? err.message : "Failed");
@@ -87,6 +103,13 @@ export default function AdminPage() {
   }
 
   async function handleRefund(betId: string) {
+    if (
+      !window.confirm(
+        `Refund bet ${betId}?\n\nBoth maker and taker will receive their stake back.\nThis action is irreversible.`
+      )
+    )
+      return;
+
     setActionLoading(betId);
     setMessage(null);
     try {
@@ -96,6 +119,7 @@ export default function AdminPage() {
           "Content-Type": "application/json",
           "x-admin-api-key": apiKey,
         },
+        body: JSON.stringify({ confirmation: "REFUND" }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error);

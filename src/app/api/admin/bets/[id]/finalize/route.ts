@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { validateAdminAuth, adminFinalizeSchema } from "@/lib/validators";
+import { lamportsToSol } from "@/lib/utils";
 
 export async function POST(
   request: Request,
@@ -15,9 +16,16 @@ export async function POST(
     const body = await request.json();
     const parsed = adminFinalizeSchema.parse(body);
 
+    if (!parsed.confirmation || parsed.confirmation !== "FINALIZE") {
+      return NextResponse.json(
+        { error: "Missing confirmation. Send { confirmation: 'FINALIZE' } to proceed." },
+        { status: 400 }
+      );
+    }
+
     const bet = await prisma.bet.findUnique({
       where: { id },
-      include: { maker: true, taker: true },
+      include: { maker: true, taker: true, evidence: true, disputes: true },
     });
 
     if (!bet) {
@@ -29,6 +37,17 @@ export async function POST(
         { status: 400 }
       );
     }
+
+    const stakeSol = lamportsToSol(bet.stakeLamports);
+    const pot = stakeSol * 2;
+    const fee = pot * (bet.feeBps / 10_000);
+    const payout = pot - fee;
+
+    console.log(
+      `[admin] Finalizing bet ${id}: winner=${parsed.winner_side}, ` +
+      `pot=${pot} SOL, fee=${fee} SOL, payout=${payout} SOL, ` +
+      `evidence_hash=${bet.evidenceHash}, db_status=${bet.status}`
+    );
 
     await prisma.bet.update({
       where: { id },
@@ -43,6 +62,15 @@ export async function POST(
       bet_id: id,
       final_winner: parsed.winner_side,
       status: "FINALIZED",
+      payout_summary: {
+        total_pot_sol: pot,
+        fee_sol: fee,
+        winner_payout_sol: payout,
+        fee_bps: bet.feeBps,
+      },
+      evidence_hash: bet.evidenceHash,
+      evidence_count: bet.evidence.length,
+      dispute_count: bet.disputes.length,
     });
   } catch (error) {
     if (error instanceof Error && error.name === "ZodError") {

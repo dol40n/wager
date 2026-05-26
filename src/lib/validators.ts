@@ -41,6 +41,7 @@ export const disputeSchema = z.object({
 
 export const adminFinalizeSchema = z.object({
   winner_side: z.enum(["YES", "NO"]),
+  confirmation: z.string().optional(),
 });
 
 export const resolverRunSchema = z.object({

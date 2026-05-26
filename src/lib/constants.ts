@@ -26,3 +26,25 @@ export const DISPUTE_WINDOW_SECONDS = 86_400; // 24 hours
 export const REFUND_TIMEOUT_SECONDS = 7 * 86_400; // 7 days
 
 export const ADMIN_API_KEY = process.env.ADMIN_API_KEY || "";
+
+export const MAX_ACTIVE_BETS_PER_WALLET = 10;
+
+export const RATE_LIMIT_WINDOW_MS = 60_000; // 1 minute
+export const RATE_LIMIT_MAX_CREATES = 5;
+export const RATE_LIMIT_MAX_NORMALIZES = 10;
+
+export const REJECTED_TOPICS = [
+  "assassination",
+  "murder",
+  "terrorism",
+  "child",
+  "suicide",
+  "self-harm",
+  "human trafficking",
+  "drug trafficking",
+  "weapons trafficking",
+  "arson",
+  "bomb",
+  "biological weapon",
+  "chemical weapon",
+];

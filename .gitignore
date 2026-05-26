@@ -47,6 +47,8 @@ next-env.d.ts
 target/debug/
 target/release/
 target/sbf-solana-solana/
+target/sbpf-solana-solana/
+target/.rustc_info.json
 target/deploy/wager_escrow-keypair.json
 
 # rust

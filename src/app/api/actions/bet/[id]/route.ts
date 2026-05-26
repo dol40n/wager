@@ -51,7 +51,13 @@ export async function GET(
         "",
         "WARNING: This is experimental devnet software. Do not use real funds.",
       ].join("\n"),
-      label: isAcceptable ? "Accept Wager" : "Not Available",
+      label: isAcceptable
+        ? "Accept Wager"
+        : bet.status !== "OPEN"
+        ? `Bet ${bet.status.toLowerCase()}`
+        : !bet.makerFunded
+        ? "Awaiting maker funding"
+        : "Deadline passed",
       disabled: !isAcceptable,
       links: isAcceptable
         ? {

@@ -3,9 +3,22 @@ import { createHash } from "crypto";
 import { prisma } from "@/lib/db";
 import { createBetSchema } from "@/lib/validators";
 import { computeBetIdHash, deriveBetPDA } from "@/lib/solana/program";
+import { isRateLimited } from "@/lib/rate-limit";
+import {
+  RATE_LIMIT_MAX_CREATES,
+  MAX_ACTIVE_BETS_PER_WALLET,
+} from "@/lib/constants";
 
 export async function POST(request: Request) {
   try {
+    const ip = request.headers.get("x-forwarded-for") || "unknown";
+    if (isRateLimited(`create:${ip}`, RATE_LIMIT_MAX_CREATES)) {
+      return NextResponse.json(
+        { error: "Rate limit exceeded. Try again in 1 minute." },
+        { status: 429 }
+      );
+    }
+
     const body = await request.json();
     const parsed = createBetSchema.parse(body);
 
@@ -16,6 +29,21 @@ export async function POST(request: Request) {
       wallet = await prisma.userWallet.create({
         data: { pubkey: parsed.maker_pubkey },
       });
+    }
+
+    const activeBets = await prisma.bet.count({
+      where: {
+        makerId: wallet.id,
+        status: { in: ["OPEN", "ACCEPTED", "RESULT_PROPOSED"] },
+      },
+    });
+    if (activeBets >= MAX_ACTIVE_BETS_PER_WALLET) {
+      return NextResponse.json(
+        {
+          error: `Maximum ${MAX_ACTIVE_BETS_PER_WALLET} active bets per wallet. Cancel or wait for existing bets to resolve.`,
+        },
+        { status: 400 }
+      );
     }
 
     const bet = await prisma.bet.create({

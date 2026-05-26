@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { validateAdminAuth } from "@/lib/validators";
+import { lamportsToSol } from "@/lib/utils";
 
 export async function POST(
   request: Request,
@@ -12,9 +13,18 @@ export async function POST(
 
   try {
     const { id } = await params;
+    const body = await request.json().catch(() => ({}));
+
+    if (!body.confirmation || body.confirmation !== "REFUND") {
+      return NextResponse.json(
+        { error: "Missing confirmation. Send { confirmation: 'REFUND' } to proceed." },
+        { status: 400 }
+      );
+    }
 
     const bet = await prisma.bet.findUnique({
       where: { id },
+      include: { maker: true, taker: true },
     });
 
     if (!bet) {
@@ -29,6 +39,14 @@ export async function POST(
       );
     }
 
+    const stakeSol = lamportsToSol(bet.stakeLamports);
+
+    console.log(
+      `[admin] Refunding bet ${id}: status=${bet.status}, ` +
+      `stake=${stakeSol} SOL, maker=${bet.maker.pubkey}, ` +
+      `taker=${bet.taker?.pubkey || "none"}`
+    );
+
     await prisma.bet.update({
       where: { id },
       data: {
@@ -40,6 +58,12 @@ export async function POST(
     return NextResponse.json({
       bet_id: id,
       status: "REFUNDED",
+      refund_summary: {
+        stake_per_side_sol: stakeSol,
+        maker: bet.maker.pubkey,
+        taker: bet.taker?.pubkey || null,
+        previous_status: bet.status,
+      },
       message:
         "Bet marked as refunded in DB. Execute on-chain refund transaction separately.",
     });

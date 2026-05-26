@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
-import { resolveWager } from "@/lib/ai/resolver";
+import { resolveWager, canonicalizeEvidence } from "@/lib/ai/resolver";
 import { validateAdminAuth } from "@/lib/validators";
 import { hashEvidence } from "@/lib/utils";
 import { DISPUTE_WINDOW_SECONDS } from "@/lib/constants";
@@ -51,7 +51,7 @@ export async function POST(request: Request) {
           });
         }
 
-        const evidenceJson = JSON.stringify(resolution.evidence);
+        const evidenceJson = canonicalizeEvidence(resolution.evidence);
         const evidenceHashHex = hashEvidence(evidenceJson).toString("hex");
 
         await prisma.bet.update({
