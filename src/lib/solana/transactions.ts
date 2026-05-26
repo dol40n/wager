@@ -217,6 +217,54 @@ export async function buildAdminFinalizeTx(params: {
   return buildVersionedTx(params.resolverAuthority, [ix]);
 }
 
+export async function buildInitializeAndFundTx(params: {
+  maker: PublicKey;
+  betIdHash: Buffer;
+  makerSide: "yes" | "no";
+  stakeLamports: number;
+  deadlineTs: number;
+  feeBps: number;
+  resolverAuthority: PublicKey;
+  allowedTaker: PublicKey | null;
+  betPDA: PublicKey;
+  vaultPDA: PublicKey;
+}): Promise<VersionedTransaction> {
+  const initData = Buffer.concat([
+    anchorDiscriminator("initialize_bet"),
+    encodeU8Array32(params.betIdHash),
+    encodeBetSide(params.makerSide),
+    encodeU64(BigInt(params.stakeLamports)),
+    encodeI64(BigInt(params.deadlineTs)),
+    encodeU16(params.feeBps),
+    encodeOptionPubkey(params.allowedTaker),
+  ]);
+
+  const initIx = new TransactionInstruction({
+    programId: PROGRAM_ID,
+    keys: [
+      { pubkey: params.betPDA, isSigner: false, isWritable: true },
+      { pubkey: params.vaultPDA, isSigner: false, isWritable: false },
+      { pubkey: params.maker, isSigner: true, isWritable: true },
+      { pubkey: params.resolverAuthority, isSigner: false, isWritable: false },
+      { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
+    ],
+    data: initData,
+  });
+
+  const fundIx = new TransactionInstruction({
+    programId: PROGRAM_ID,
+    keys: [
+      { pubkey: params.betPDA, isSigner: false, isWritable: true },
+      { pubkey: params.vaultPDA, isSigner: false, isWritable: true },
+      { pubkey: params.maker, isSigner: true, isWritable: true },
+      { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
+    ],
+    data: encodeNoArgs("fund_maker"),
+  });
+
+  return buildVersionedTx(params.maker, [initIx, fundIx]);
+}
+
 async function buildVersionedTx(
   payer: PublicKey,
   instructions: TransactionInstruction[]
