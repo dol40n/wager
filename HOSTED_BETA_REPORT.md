@@ -1,6 +1,8 @@
 # Hosted Beta Report
 
-## Status: LIVE — FULL E2E VERIFIED ON DEVNET
+## Status: LIVE — ON-CHAIN SETTLEMENT VERIFIED
+
+**Version**: v0.1 private beta (devnet)
 
 ## URLs
 
@@ -9,46 +11,43 @@
 | **App** | https://wager-smoky.vercel.app |
 | **Healthcheck** | https://wager-smoky.vercel.app/api/health |
 | **Program** | [Explorer](https://explorer.solana.com/address/7fQ9Dh4iNrp2mfjtBthqrmrcYZXhSaCVZcyXVuCs6hFN?cluster=devnet) |
-| **E2E Bet** | https://wager-smoky.vercel.app/bet/cmpm6on7q000310jibwnf6syj |
 
-## Hosted E2E Flow (2026-05-26)
+## On-Chain Settlement Proof
 
-Full on-chain lifecycle executed against hosted Vercel app + Solana devnet:
+**Bet**: `cmpm7w0070003142km884p350`
+**Page**: https://wager-smoky.vercel.app/bet/cmpm7w0070003142km884p350
 
-| Step | Action | Result | TX Signature |
-|------|--------|--------|--------------|
-| 0 | Create bet in hosted DB | `cmpm6on7q000310jibwnf6syj` | — |
-| 1 | `initialize_bet` on devnet | PDA created | [4CXp8RAv...](https://explorer.solana.com/tx/4CXp8RAv1uihhpRuqJXzjYTQUiUApB6zusSiSYTyxVCm8QogRTteKaXgtAQ9kG3zx1wN5k1upHtPuNCc5D6nGp1h?cluster=devnet) |
-| 2 | `fund_maker` on devnet | Vault = 0.05 SOL | [3fTGxnyP...](https://explorer.solana.com/tx/3fTGxnyPRb8fcEAiNNPR4gnTQXQMPT7kXvTkN77m9LqXNHantDAQzEXXRAHEhUQg8G6a6LDsXQSH3xesq4MTUhhz?cluster=devnet) |
-| 3 | `accept_bet` on devnet | Vault = 0.1 SOL, status = ACCEPTED | [4GhRLKit...](https://explorer.solana.com/tx/4GhRLKitHTLvKnDeUSXUnGGt9qLysK2jKcY81BWwU4iBQ7PmjamYeB7M4eUFCrM3L5ZtMn78JSw8McV8GbT4RPSL?cluster=devnet) |
-| 4 | Sync DB to on-chain state | DB status OPEN → ACCEPTED | via `/api/bets/:id/sync` |
-| 5 | Run hosted AI resolver | UNKNOWN, confidence=0, needs_manual_review=true | via `/api/resolver/run/:id` |
-| 6 | Admin finalize (DB) | FINALIZED, winner=YES | via `/api/admin/bets/:id/finalize` |
+| Step | TX Signature | Explorer |
+|------|-------------|----------|
+| initialize_bet | `5B1rYifUCBgXdcLHeiLadBS5xYhxSULCsJwoDzdz9cAK7TM3LezJ2Pa5erB3DJg8HEQXUP7F4Q3Mf5BpEJMxiccN` | [View](https://explorer.solana.com/tx/5B1rYifUCBgXdcLHeiLadBS5xYhxSULCsJwoDzdz9cAK7TM3LezJ2Pa5erB3DJg8HEQXUP7F4Q3Mf5BpEJMxiccN?cluster=devnet) |
+| fund_maker | `2AnDzEAgNk4ERYnmE16RkaLFgxJVVc9fAe5TnW7q4AEQ5yYJa4MB8gsNpiVeXyirXejJAatZQuiVEU4Xfz2mNdch` | [View](https://explorer.solana.com/tx/2AnDzEAgNk4ERYnmE16RkaLFgxJVVc9fAe5TnW7q4AEQ5yYJa4MB8gsNpiVeXyirXejJAatZQuiVEU4Xfz2mNdch?cluster=devnet) |
+| accept_bet | `2hsiUsFFswFQ15C7evA49bFTpVPn82mJEdYGANiQcegxdKoKs6M1rzjk5o553v4a6nqnXygTJTUUvxoZUmtFRhZm` | [View](https://explorer.solana.com/tx/2hsiUsFFswFQ15C7evA49bFTpVPn82mJEdYGANiQcegxdKoKs6M1rzjk5o553v4a6nqnXygTJTUUvxoZUmtFRhZm?cluster=devnet) |
+| propose_result | `4ZVJeEzWNsbfF9dQhJtC6wTYmcBBwuMuhjBdehaJu1B1Wzaz6SbVcdgmAPEzCYTbKVwZJ37pC8bTUSKpocPhzeNi` | [View](https://explorer.solana.com/tx/4ZVJeEzWNsbfF9dQhJtC6wTYmcBBwuMuhjBdehaJu1B1Wzaz6SbVcdgmAPEzCYTbKVwZJ37pC8bTUSKpocPhzeNi?cluster=devnet) |
+| admin_finalize | `3TQ9QiCWir12rgFhyuEGQ4CvLtLMHe2v8JNMCmjBjYLumA1UxqQx6wYsnNnDPSGmMwpiRDASTyXjUiYZU9wVnwiT` | [View](https://explorer.solana.com/tx/3TQ9QiCWir12rgFhyuEGQ4CvLtLMHe2v8JNMCmjBjYLumA1UxqQx6wYsnNnDPSGmMwpiRDASTyXjUiYZU9wVnwiT?cluster=devnet) |
 
-### Payout Summary (from admin finalize response)
-```
-total_pot_sol: 0.1
-fee_sol: 0.001 (1%)
-winner_payout_sol: 0.099 (99%)
-fee_bps: 100
-```
+### Settlement Result
 
-### Evidence Hash
-```
-DB: 4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945
-```
+| Check | Value |
+|-------|-------|
+| Vault balance after finalize | **0 SOL** |
+| Winner (maker) received | **0.099 SOL** (99%) |
+| Fee wallet received | **0.001 SOL** (1%) |
+| DB status | **FINALIZED** |
+| On-chain status | **Finalized** |
+| TX signature stored in DB | Yes |
+| AdminActionLog recorded | Yes |
 
 ### Accounts
-| Account | Address |
-|---------|---------|
-| Bet PDA | `7LRQanz9fVZdt7TUq1C8J34aF9fSz2pNZN7ZpYsV8QBE` |
-| Vault PDA | `3rgDNuSoARtCkngnR2o3qx1B4C787CFbXzqoVuaLzNd4` |
-| Maker | `CjnFMbXwmFnqUeqfWzTYNa2vndGkaMnMQbTM98UqxQux` |
-| Taker | `FxJFH99Ddnq2ugtHUBY7t5HQ6BkXXPjL6ecQPjgpJzow` |
+
+| Role | Pubkey |
+|------|--------|
+| Program | `7fQ9Dh4iNrp2mfjtBthqrmrcYZXhSaCVZcyXVuCs6hFN` |
 | Resolver | `2K8jv4HT8Er7fSTEtJ3yAzqUJoQ6eLiRPYxYW9KTmECa` |
+| Maker | `CjnFMbXwmFnqUeqfWzTYNa2vndGkaMnMQbTM98UqxQux` |
 | Fee wallet | `EeVikWJhvRtPC7WG5UsXVy6Uf8ZKFEeadeJDqvBhg22p` |
 
 ## Healthcheck
+
 ```json
 {
   "status": "healthy",
@@ -62,18 +61,11 @@ DB: 4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945
 }
 ```
 
-## Configuration
+## Safety
 
-| Env Var | Status |
-|---------|--------|
-| `DATABASE_URL` | Set (Neon) |
-| `ANTHROPIC_API_KEY` | Set |
-| `WAGER_PROGRAM_ID` | Set |
-| `ADMIN_API_KEY` | Set |
-| `FEE_WALLET` | Set |
-| `RESOLVER_AUTHORITY_PRIVATE_KEY` | Set |
-| `NEXT_PUBLIC_SOLANA_RPC_URL` | Set (devnet) |
-| `NEXT_PUBLIC_APP_URL` | Set |
+- DB-only `/finalize` and `/refund` return **HTTP 410 (disabled)**
+- All settlement goes through `/finalize-onchain` which verifies vault=0 before updating DB
+- TX signatures and payout details stored in Transaction + AdminActionLog tables
 
 ## Test Results
 
@@ -82,22 +74,4 @@ DB: 4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945
 | Vitest | 119 passing |
 | Anchor on-chain | 21 passing |
 | TypeScript | 0 errors |
-| Next.js build | 22 routes |
-| Hosted healthcheck | healthy |
-| Hosted E2E (devnet) | Full flow completed |
-
-## Architecture Note: DB/Chain Sync
-
-The DB and on-chain state are updated separately:
-- On-chain transactions (init, fund, accept) update Solana state
-- The hosted API has a `/api/bets/:id/sync` endpoint that syncs DB state from on-chain
-- Admin finalize updates the DB; on-chain `admin_finalize_disputed` requires the resolver to sign separately
-- Future: add Solana event listeners for automatic sync
-
-## Known Issues
-
-1. **DB/chain sync is manual** — use `/api/bets/:id/sync` to update DB from chain
-2. **On-chain finalize requires local resolver key** — the hosted backend has the key but no API for on-chain signing yet
-3. **In-memory rate limiter** — resets on Vercel cold starts
-4. **Devnet RPC rate limits** — use dedicated RPC for heavy usage
-5. **Resolver falls back gracefully** — UNKNOWN + manual_review for unresolvable bets
+| Next.js build | clean |
