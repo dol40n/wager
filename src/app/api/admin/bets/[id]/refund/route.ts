@@ -1,95 +1,10 @@
 import { NextResponse } from "next/server";
-import { prisma } from "@/lib/db";
-import { validateAdminAuth } from "@/lib/validators";
-import { lamportsToSol } from "@/lib/utils";
 
-export async function POST(
-  request: Request,
-  { params }: { params: Promise<{ id: string }> }
-) {
-  if (!validateAdminAuth(request)) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
-
-  try {
-    const { id } = await params;
-    const body = await request.json().catch(() => ({}));
-
-    if (!body.confirmation || body.confirmation !== "REFUND") {
-      return NextResponse.json(
-        { error: "Missing confirmation. Send { confirmation: 'REFUND' } to proceed." },
-        { status: 400 }
-      );
-    }
-
-    const bet = await prisma.bet.findUnique({
-      where: { id },
-      include: { maker: true, taker: true },
-    });
-
-    if (!bet) {
-      return NextResponse.json({ error: "Bet not found" }, { status: 404 });
-    }
-
-    const refundable = ["OPEN", "ACCEPTED", "DISPUTED", "RESULT_PROPOSED"];
-    if (!refundable.includes(bet.status)) {
-      return NextResponse.json(
-        { error: "Bet cannot be refunded in current status" },
-        { status: 400 }
-      );
-    }
-
-    const stakeSol = lamportsToSol(bet.stakeLamports);
-
-    console.log(
-      `[admin] Refunding bet ${id}: status=${bet.status}, ` +
-      `stake=${stakeSol} SOL, maker=${bet.maker.pubkey}, ` +
-      `taker=${bet.taker?.pubkey || "none"}`
-    );
-
-    const statusBefore = bet.status;
-
-    await prisma.bet.update({
-      where: { id },
-      data: {
-        status: "REFUNDED",
-        needsManualReview: false,
-      },
-    });
-
-    await prisma.adminActionLog.create({
-      data: {
-        betId: id,
-        action: "REFUND",
-        adminIdentity: request.headers.get("x-admin-api-key")?.slice(0, 8) + "...",
-        statusBefore,
-        statusAfter: "REFUNDED",
-        evidenceHash: bet.evidenceHash,
-        details: JSON.stringify({
-          stake_sol: stakeSol,
-          maker: bet.maker.pubkey,
-          taker: bet.taker?.pubkey || null,
-        }),
-      },
-    });
-
-    return NextResponse.json({
-      bet_id: id,
-      status: "REFUNDED",
-      refund_summary: {
-        stake_per_side_sol: stakeSol,
-        maker: bet.maker.pubkey,
-        taker: bet.taker?.pubkey || null,
-        previous_status: bet.status,
-      },
-      message:
-        "Bet marked as refunded in DB. Execute on-chain refund transaction separately.",
-    });
-  } catch (error) {
-    console.error("Admin refund error:", error);
-    return NextResponse.json(
-      { error: "Failed to refund bet" },
-      { status: 500 }
-    );
-  }
+export async function POST() {
+  return NextResponse.json(
+    {
+      error: "DB-only refund is disabled. Use POST /api/admin/bets/:id/refund-onchain instead.",
+    },
+    { status: 410 }
+  );
 }

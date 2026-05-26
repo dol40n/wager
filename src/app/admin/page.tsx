@@ -78,7 +78,7 @@ export default function AdminPage() {
     setActionLoading(betId);
     setMessage(null);
     try {
-      const res = await fetch(`/api/admin/bets/${betId}/finalize`, {
+      const res = await fetch(`/api/admin/bets/${betId}/finalize-onchain`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -92,7 +92,7 @@ export default function AdminPage() {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error);
       setMessage(
-        `Bet ${betId} finalized: ${winnerSide} wins. Payout: ${data.payout_summary?.winner_payout_sol || "?"} SOL`
+        `Bet ${betId} finalized on-chain! Winner: ${data.settlement?.winner_received_sol} SOL, Fee: ${data.settlement?.fee_received_sol} SOL. TX: ${data.tx_signature?.slice(0, 20)}...`
       );
       fetchBets();
     } catch (err) {
@@ -113,7 +113,7 @@ export default function AdminPage() {
     setActionLoading(betId);
     setMessage(null);
     try {
-      const res = await fetch(`/api/admin/bets/${betId}/refund`, {
+      const res = await fetch(`/api/admin/bets/${betId}/refund-onchain`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -123,7 +123,7 @@ export default function AdminPage() {
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error);
-      setMessage(`Bet ${betId} refunded`);
+      setMessage(`Bet ${betId} refunded. ${data.on_chain_note || ""}`);
       fetchBets();
     } catch (err) {
       setMessage(err instanceof Error ? err.message : "Failed");
