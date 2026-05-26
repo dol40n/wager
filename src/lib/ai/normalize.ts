@@ -1,4 +1,5 @@
 import Anthropic from "@anthropic-ai/sdk";
+import { z } from "zod";
 import type { NormalizeResult } from "@/types";
 
 const client = new Anthropic();
@@ -17,7 +18,40 @@ Rules:
 - Always define exact YES and NO outcomes with no room for interpretation.
 - If no deadline is provided, suggest a reasonable one.
 
-Respond ONLY with valid JSON matching the NormalizeResult schema. No markdown, no extra text.`;
+You MUST respond with a JSON object using EXACTLY these field names:
+{
+  "original_text": "<the original wager text>",
+  "normalized_question": "<precise YES/NO question>",
+  "category": "crypto" | "sports" | "social_media" | "news" | "custom",
+  "yes_definition": "<exact condition for YES>",
+  "no_definition": "<exact condition for NO>",
+  "deadline_utc": "<ISO 8601 datetime>",
+  "resolution_sources": ["<source1>", "<source2>"],
+  "resolution_method": "api" | "web_research" | "ai_evidence" | "manual_review",
+  "objective_criteria": ["<criterion1>"],
+  "ambiguity_score": <0.0 to 1.0>,
+  "ambiguity_notes": ["<note if ambiguous>"],
+  "should_reject": false,
+  "rejection_reason": null
+}
+
+Respond ONLY with valid JSON. No markdown, no commentary, no code fences.`;
+
+const normalizeResultSchema = z.object({
+  original_text: z.string(),
+  normalized_question: z.string(),
+  category: z.enum(["crypto", "sports", "social_media", "news", "custom"]),
+  yes_definition: z.string(),
+  no_definition: z.string(),
+  deadline_utc: z.string(),
+  resolution_sources: z.array(z.string()),
+  resolution_method: z.enum(["api", "web_research", "ai_evidence", "manual_review"]),
+  objective_criteria: z.array(z.string()),
+  ambiguity_score: z.number().min(0).max(1),
+  ambiguity_notes: z.array(z.string()),
+  should_reject: z.boolean(),
+  rejection_reason: z.string().nullable(),
+});
 
 export async function normalizeWagerCondition(
   text: string,
@@ -39,11 +73,22 @@ export async function normalizeWagerCondition(
     throw new Error("Unexpected response type from AI");
   }
 
-  const result: NormalizeResult = JSON.parse(content.text);
-
-  if (result.ambiguity_score < 0 || result.ambiguity_score > 1) {
-    throw new Error("Invalid ambiguity_score from AI");
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(content.text);
+  } catch {
+    console.error("[normalize] AI returned invalid JSON");
+    throw new Error("AI returned invalid JSON");
   }
 
-  return result;
+  const validation = normalizeResultSchema.safeParse(parsed);
+  if (!validation.success) {
+    console.error("[normalize] Schema validation failed:", validation.error.issues);
+    throw new Error(
+      "AI response schema mismatch: " +
+      validation.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`).join("; ")
+    );
+  }
+
+  return validation.data as NormalizeResult;
 }

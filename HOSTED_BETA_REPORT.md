@@ -1,8 +1,8 @@
 # Hosted Beta Report
 
-## Status: LIVE
+## Status: LIVE — AI ENABLED
 
-The wager escrow devnet beta is deployed and publicly accessible.
+The wager escrow devnet beta is deployed, publicly accessible, and AI-powered.
 
 ## URLs
 
@@ -11,80 +11,114 @@ The wager escrow devnet beta is deployed and publicly accessible.
 | **App** | https://wager-smoky.vercel.app |
 | **Healthcheck** | https://wager-smoky.vercel.app/api/health |
 | **Program (Explorer)** | https://explorer.solana.com/address/7fQ9Dh4iNrp2mfjtBthqrmrcYZXhSaCVZcyXVuCs6hFN?cluster=devnet |
+| **Test Bet** | https://wager-smoky.vercel.app/bet/cmpm55gsa00026m2w480r53wq |
 
-## Healthcheck Result
+## Healthcheck
 
 ```json
 {
   "status": "healthy",
   "program_id": "7fQ9Dh4iNrp2mfjtBthqrmrcYZXhSaCVZcyXVuCs6hFN",
   "checks": {
-    "database": { "ok": true, "latencyMs": 310 },
-    "solana_rpc": { "ok": true, "latencyMs": 61 }
-  }
+    "database": { "ok": true, "latencyMs": 1309 },
+    "solana_rpc": { "ok": true, "latencyMs": 65 }
+  },
+  "timestamp": "2026-05-26T04:30:49.086Z"
 }
 ```
+
+## Configuration
+
+| Env Var | Status |
+|---------|--------|
+| `DATABASE_URL` | Set (Neon PostgreSQL) |
+| `ANTHROPIC_API_KEY` | Set |
+| `WAGER_PROGRAM_ID` | Set |
+| `ADMIN_API_KEY` | Set |
+| `FEE_WALLET` | Set |
+| `NEXT_PUBLIC_SOLANA_RPC_URL` | Set (devnet) |
+| `NEXT_PUBLIC_SOLANA_NETWORK` | Set (devnet) |
+| `NEXT_PUBLIC_APP_URL` | Set |
+| `RESOLVER_AUTHORITY_PRIVATE_KEY` | NOT SET — on-chain resolution requires this |
+
+## AI Normalize Smoke Test
+
+**Input**: "Will Bitcoin be above $100,000 by 2026-06-01 18:00 UTC?"
+
+**Output** (all fields match NormalizeResult schema via Zod validation):
+- `normalized_question`: "Will Bitcoin (BTC) price be above $100,000 USD by 2026-06-01 18:00 UTC?"
+- `category`: "crypto"
+- `yes_definition`: "BTC price > $100,000.00 at deadline per CoinGecko"
+- `no_definition`: "BTC price <= $100,000.00 at deadline per CoinGecko"
+- `deadline_utc`: "2026-06-01T18:00:00Z"
+- `resolution_sources`: CoinGecko, CoinMarketCap, Binance APIs
+- `ambiguity_score`: 0
+- `should_reject`: false
+
+## Test Bet Created
+
+| Field | Value |
+|-------|-------|
+| ID | `cmpm55gsa00026m2w480r53wq` |
+| Question | Will Bitcoin (BTC) price be above $100,000 USD by 2026-06-01 18:00 UTC? |
+| Status | OPEN |
+| Maker | `CjnFMbXwmFnqUeqfWzTYNa2vndGkaMnMQbTM98UqxQux` |
+| Stake | 0.05 SOL |
+| On-chain PDA | `BXDfCCTpEtZMHGzfx5dWQjnkQPgH4KqNm3PThBw7r925` |
+
+## Blink Action State
+
+- **Status**: "Awaiting maker funding" (disabled) — correct, bet not yet funded on-chain
+- All metadata (question, YES/NO defs, stake, deadline) renders correctly
+
+## Resolver Safety Checks
+
+| Test | Result |
+|------|--------|
+| Resolver on non-ACCEPTED bet | Rejected: "Bet is not in ACCEPTED status" |
+| Batch resolver with no eligible bets | `{ processed: 0, results: [] }` |
+| Resolver requires admin API key | Enforced (401 without key) |
 
 ## Infrastructure
 
 | Component | Provider | Details |
 |-----------|----------|---------|
 | Frontend/API | Vercel | Next.js 16, iad1 region |
-| Database | Neon | PostgreSQL 17, us-east-2 |
-| Blockchain | Solana devnet | Program ID `7fQ9Dh...6hFN` |
-| AI | Anthropic | Claude Sonnet (normalize + resolve) |
+| Database | Neon | PostgreSQL 17, us-east-2, all 6 tables |
+| Blockchain | Solana devnet | Program `7fQ9Dh...6hFN` |
+| AI | Anthropic | Claude Sonnet 4 (normalize + resolve) |
 
-## Program ID
+## Full Hosted Flow (manual browser steps)
 
-`7fQ9Dh4iNrp2mfjtBthqrmrcYZXhSaCVZcyXVuCs6hFN`
+To complete the full lifecycle through the hosted UI:
 
-## Devnet Test Transactions (from Phase 12)
+1. Open https://wager-smoky.vercel.app/create
+2. Enter a wager description, click "Analyze Wager"
+3. Review AI-normalized conditions, click "Confirm & Create Bet"
+4. On the bet detail page, use Phantom/Solflare (devnet) to sign `initialize_bet` + `fund_maker` transactions
+5. Copy the Blink URL and share with counterparty
+6. Taker opens Blink, connects devnet wallet, signs `accept_bet`
+7. After deadline, admin runs resolver at `/admin` panel
+8. 24h dispute window or admin finalize
 
-| Instruction | Signature | Explorer |
-|------------|-----------|----------|
-| initialize_bet | `3AjAejb...` | [View](https://explorer.solana.com/tx/3AjAejbEN1Fr5k4NAWRbWNw5ifGrZYcMiwNT1FSPp7w7BKwFTZKQNKMwNpiswb7XX1DhKRVF5h8nfyqNcdKaxVp9?cluster=devnet) |
-| fund_maker | `7ouiQ2P...` | [View](https://explorer.solana.com/tx/7ouiQ2PLEW5PmeYi11wNa1NySjaEedPvh7aaEzzpbi6Bfep7hxRhG5NgwygSAWaCnoXr7Ai2cN9WhF72kfFhwUz?cluster=devnet) |
-| accept_bet | `5nGtCWM...` | [View](https://explorer.solana.com/tx/5nGtCWMEVa41DAzA8WmYzxDcoZZTzBFzKiXGMVek8ZgetKL26vMhjudRxejLQtoXvYUEciKRmCc1LWKKGSvnrAR2?cluster=devnet) |
-| propose_result | `2FCcxp2...` | [View](https://explorer.solana.com/tx/2FCcxp2875Yza5J6ZGvjV3aBREjgoxQhj13HBBP5tjgaYUGwwkxdDXH9Y9wQ6J7bV7f4sTikWhfdMYRwQF8UvvFM?cluster=devnet) |
-| dispute_result | `2htagLm...` | [View](https://explorer.solana.com/tx/2htagLmaNg5oxYN63YXMiXUD7oG6aXsBbv3V869psUehhBpAAJ7ZPJgugGkyTNYr8hfsTUNNuKRQ3F9skHBzWnDj?cluster=devnet) |
-| admin_finalize | `2ELxyqn...` | [View](https://explorer.solana.com/tx/2ELxyqnpvKnXmQcimLdxrFcwV3HN1ijT9jnSVGxA98HWPgYuyfcj9niSsRibb7Qdkw2Ws73MZvzm4fMZdqEJC1U6?cluster=devnet) |
+## What's Enabled
 
-## Verified Balances (devnet test run)
+- AI wager normalization (Anthropic Claude)
+- AI resolver (Anthropic Claude) — proposes winners with evidence
+- Zod validation on all AI responses
+- Content safety blocklist
+- Rate limiting (5 creates/min, 10 normalizes/min)
+- Admin action logging to DB
+- Healthcheck monitoring
 
-| Account | Balance After |
-|---------|--------------|
-| Vault PDA | 0 lamports |
-| Fee wallet | +0.001 SOL (1% of 0.1 SOL pot) |
-| Winner | +0.099 SOL (99% of 0.1 SOL pot) |
+## What Still Needs Manual Setup
 
-## Evidence Hash Match
-
-```
-On-chain: 6c7de1439dffe7c6fd6545c47a2cbdd85046cb22f569e502cf34fa0836fdaf28
-Computed: 6c7de1439dffe7c6fd6545c47a2cbdd85046cb22f569e502cf34fa0836fdaf28
-Match: YES
-```
-
-## Test Results
-
-| Suite | Count | Status |
-|-------|-------|--------|
-| Vitest (unit + adversarial + IDL + Borsh) | 111 passing | All green |
-| Anchor on-chain (unit + e2e + devnet) | 21 passing | All green |
-| TypeScript check | 0 errors | Clean |
-| Next.js build | 21 routes | Clean |
-| Healthcheck (hosted) | healthy | DB + RPC OK |
+- `RESOLVER_AUTHORITY_PRIVATE_KEY`: Required for the backend to sign `propose_result` and `admin_finalize_disputed` transactions on-chain. Without this, resolution is DB-only (no on-chain state change).
+- Wallet adapter integration for seamless browser signing.
 
 ## Known Issues
 
-1. **No wallet adapter**: Users must manually enter pubkey. Wallet adapter integration planned.
-2. **No on-chain event listener**: DB and chain state sync is manual.
-3. **In-memory rate limiter**: Resets on Vercel cold starts. Use Redis/Upstash for production.
-4. **Devnet RPC rate limits**: The public devnet RPC has request limits. Use Helius/QuickNode for production.
-5. **No ANTHROPIC_API_KEY set**: AI normalize and resolver endpoints require the key. Add via `vercel env add ANTHROPIC_API_KEY production`.
-6. **Dispute window**: Fixed 24h, not configurable.
-
-## For Beta Testers
-
-See [PRIVATE_BETA.md](PRIVATE_BETA.md) for setup instructions, test scenarios, and bug reporting.
-See [DEMO_SCRIPT.md](DEMO_SCRIPT.md) for a step-by-step demo walkthrough.
+1. In-memory rate limiter resets on Vercel cold starts
+2. No real-time on-chain event sync (manual DB updates)
+3. Dispute window is fixed 24h (no per-bet config)
+4. Public devnet RPC has rate limits — use Helius/QuickNode for heavy usage
