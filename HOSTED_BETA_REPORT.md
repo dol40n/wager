@@ -67,11 +67,40 @@
 - All settlement goes through `/finalize-onchain` which verifies vault=0 before updating DB
 - TX signatures and payout details stored in Transaction + AdminActionLog tables
 
+## Normalize Regression Tests (2026-05-26)
+
+All three tests ran against the hosted production app after redeployment.
+
+### Test 1: "биткоин вверх или вниз через 5 минут"
+| Check | Result |
+|-------|--------|
+| should_reject | **true** |
+| ambiguity_score | **0.30** |
+| rejection_reason | "Directional wager — maker must choose UP or DOWN" |
+| deadline_utc | 2026-05-26T06:57:19Z (now + 5min, NOT 2024) |
+| deadline_year | **2026** |
+
+### Test 2: "Will Bitcoin be above $100,000 on May 26 at 14:40 ET?"
+| Check | Result |
+|-------|--------|
+| should_reject | **false** (valid) |
+| deadline_utc | 2026-05-26T18:40:00Z (today, future time) |
+| deadline_year | **2026** (not 2024) |
+
+### Test 3: "Will Bitcoin be above $100,000 by 2026-06-01 18:00 UTC?"
+| Check | Result |
+|-------|--------|
+| should_reject | **false** (valid) |
+| YES | "reaches or exceeds $100,000 at any point on or before deadline per CoinGecko" |
+| NO | "never reaches $100,000 at any point on or before deadline per CoinGecko" |
+| Complements | Exact logical opposites |
+| Source | CoinGecko (single) |
+
 ## Test Results
 
 | Suite | Count |
 |-------|-------|
-| Vitest | 119 passing |
+| Vitest | 136 passing |
 | Anchor on-chain | 21 passing |
 | TypeScript | 0 errors |
 | Next.js build | clean |
