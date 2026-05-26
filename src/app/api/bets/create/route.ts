@@ -31,6 +31,14 @@ export async function POST(request: Request) {
       });
     }
 
+    const deadlineMs = new Date(parsed.deadline_utc).getTime();
+    if (isNaN(deadlineMs) || deadlineMs <= Date.now() + 60_000) {
+      return NextResponse.json(
+        { error: "Deadline is in the past or too close. Choose a future time at least 1 minute from now." },
+        { status: 400 }
+      );
+    }
+
     const activeBets = await prisma.bet.count({
       where: {
         makerId: wallet.id,

@@ -4,13 +4,38 @@ import type { NormalizeResult } from "@/types";
 
 const client = new Anthropic();
 
-const SYSTEM_PROMPT = `You are a wager condition normalizer for a peer-to-peer betting platform. Your job is to take a natural language wager description and convert it into a precise, objectively verifiable YES/NO condition.
+const MIN_DEADLINE_BUFFER_MS = 60_000; // 1 minute minimum
+
+function buildSystemPrompt(): string {
+  const now = new Date();
+  return `You are a wager condition normalizer for a peer-to-peer betting platform. Your job is to take a natural language wager description and convert it into a precise, objectively verifiable YES/NO condition.
+
+CURRENT SERVER TIME: ${now.toISOString()}
+CURRENT YEAR: ${now.getUTCFullYear()}
+
+TIME RULES (CRITICAL):
+- The current year is ${now.getUTCFullYear()}. NEVER assume an earlier year.
+- If the user omits the year, assume the NEXT occurrence of that date in the future relative to the current server time above.
+- If the user says a relative time like "in 5 minutes", "through 10 minutes", "через 5 минут", compute deadline_utc = current server time + the interval.
+- The deadline_utc you return MUST be in the future. If you cannot produce a future deadline, set should_reject = true with rejection_reason = "Cannot determine a future deadline."
 
 CRITICAL — YES and NO must be exact logical complements:
 - If YES is true, NO must be false. If NO is true, YES must be false.
 - There must be no gap and no overlap between the two definitions.
 
-For price/metric wagers, choose ONE of these two framings:
+DIRECTIONAL WAGERS (price goes up/down, "вверх или вниз", "long or short"):
+- Do NOT auto-assign YES to "up" or "down".
+- Set ambiguity_score >= 0.3 and add an ambiguity_note: "Directional wager — maker must choose UP or DOWN as their side."
+- Frame as price_direction:
+  For UP side (maker chooses YES=UP):
+    YES: "[asset] price at [deadline] is strictly higher than price at ${now.toISOString()} according to [source]"
+    NO:  "[asset] price at [deadline] is equal to or lower than price at ${now.toISOString()} according to [source]"
+  For DOWN side (maker chooses YES=DOWN):
+    YES: "[asset] price at [deadline] is strictly lower than price at ${now.toISOString()} according to [source]"
+    NO:  "[asset] price at [deadline] is equal to or higher than price at ${now.toISOString()} according to [source]"
+- Include "start_price_reference_time" in objective_criteria.
+
+For price/metric wagers, choose ONE of these framings:
 
 1. SNAPSHOT AT DEADLINE (default for "at", "on", "as of"):
    YES: "[metric] is strictly above [target] at [deadline] according to [single source]"
@@ -26,16 +51,16 @@ For event wagers (sports, news, etc.):
 
 Resolution source rules:
 - Use exactly ONE primary resolution source.
-- Pick the most authoritative: CoinGecko for crypto prices, ESPN for sports, official government sites for elections, etc.
-- Do NOT list multiple sources unless you also define explicit fallback order.
+- For crypto prices with intervals under 1 hour, prefer Binance API (1-minute candle granularity).
+- For crypto prices with longer intervals, use CoinGecko.
+- For sports, use ESPN. For elections, use official government sites.
+- Do NOT list multiple sources unless you define explicit fallback order.
 
-Other rules:
-- If a condition is fundamentally subjective and cannot be made measurable, set should_reject to true.
-- If the wager involves illegal activity, violence, or harm, set should_reject to true.
-- If a condition is impossible to verify, set should_reject to true.
+Ambiguity rules:
 - Assign ambiguity_score from 0 (perfectly clear) to 1 (completely ambiguous).
-- If ambiguity_score > 0.25, provide ambiguity_notes explaining what is unclear.
-- If no deadline is provided, suggest a reasonable one.
+- If ambiguity_score > 0.25, set should_reject = true with rejection_reason explaining what needs clarification.
+- If a condition is fundamentally subjective, set should_reject = true.
+- If illegal/violent/harmful, set should_reject = true.
 
 You MUST respond with a JSON object using EXACTLY these field names:
 {
@@ -44,7 +69,7 @@ You MUST respond with a JSON object using EXACTLY these field names:
   "category": "crypto" | "sports" | "social_media" | "news" | "custom",
   "yes_definition": "<exact condition for YES>",
   "no_definition": "<exact condition for NO — must be logical complement of yes_definition>",
-  "deadline_utc": "<ISO 8601 datetime>",
+  "deadline_utc": "<ISO 8601 datetime — MUST be in the future>",
   "resolution_sources": ["<single primary source>"],
   "resolution_method": "api" | "web_research" | "ai_evidence" | "manual_review",
   "objective_criteria": ["<criterion1>"],
@@ -55,6 +80,7 @@ You MUST respond with a JSON object using EXACTLY these field names:
 }
 
 Respond ONLY with valid JSON. No markdown, no commentary, no code fences.`;
+}
 
 const normalizeResultSchema = z.object({
   original_text: z.string(),
@@ -83,7 +109,7 @@ export async function normalizeWagerCondition(
   const response = await client.messages.create({
     model: "claude-sonnet-4-20250514",
     max_tokens: 1024,
-    system: SYSTEM_PROMPT,
+    system: buildSystemPrompt(),
     messages: [{ role: "user", content: userMessage }],
   });
 
@@ -109,5 +135,34 @@ export async function normalizeWagerCondition(
     );
   }
 
-  return validation.data as NormalizeResult;
+  const result = validation.data as NormalizeResult;
+
+  // Server-side past deadline guard
+  if (!result.should_reject) {
+    const deadlineMs = new Date(result.deadline_utc).getTime();
+    if (isNaN(deadlineMs)) {
+      result.should_reject = true;
+      result.rejection_reason = "Could not parse deadline as a valid date.";
+    } else if (deadlineMs <= Date.now() + MIN_DEADLINE_BUFFER_MS) {
+      result.should_reject = true;
+      result.rejection_reason =
+        "Deadline is in the past or too close to the current time. Please choose a future deadline.";
+    }
+  }
+
+  // Server-side ambiguity guard
+  if (!result.should_reject && result.ambiguity_score > 0.25) {
+    result.should_reject = true;
+    if (!result.rejection_reason) {
+      result.rejection_reason =
+        "Ambiguity score too high (" +
+        result.ambiguity_score.toFixed(2) +
+        "). " +
+        (result.ambiguity_notes.length > 0
+          ? result.ambiguity_notes.join(" ")
+          : "Please clarify the condition.");
+    }
+  }
+
+  return result;
 }

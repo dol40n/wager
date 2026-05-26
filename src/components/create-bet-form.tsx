@@ -208,10 +208,10 @@ export function CreateBetForm() {
               </Alert>
             )}
 
-            {normalized.ambiguity_score > 0.25 && !normalized.should_reject && (
+            {normalized.ambiguity_score > 0.15 && !normalized.should_reject && (
               <Alert variant="warning">
                 <AlertTriangle className="h-4 w-4" />
-                <AlertTitle>Ambiguity Warning (score: {normalized.ambiguity_score.toFixed(2)})</AlertTitle>
+                <AlertTitle>Ambiguity Note (score: {normalized.ambiguity_score.toFixed(2)})</AlertTitle>
                 <AlertDescription>
                   <ul className="list-disc pl-4 mt-1">
                     {normalized.ambiguity_notes.map((note, i) => (
