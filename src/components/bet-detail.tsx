@@ -1,14 +1,22 @@
 "use client";
 
 import { useState } from "react";
+import { useWallet, useConnection } from "@solana/wallet-adapter-react";
+import dynamic from "next/dynamic";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import { AlertTriangle, Copy, ExternalLink } from "lucide-react";
+import { AlertTriangle, Copy, ExternalLink, Loader2 } from "lucide-react";
 import { lamportsToSol, formatDeadline, statusLabel, shortenAddress } from "@/lib/utils";
 import { APP_URL } from "@/lib/constants";
+import { sendSerializedTransactionWithWallet } from "@/lib/solana/send-with-wallet";
+
+const WalletMultiButton = dynamic(
+  () => import("@solana/wallet-adapter-react-ui").then((m) => m.WalletMultiButton),
+  { ssr: false }
+);
 
 interface BetDetailData {
   id: string;
@@ -49,17 +57,19 @@ interface BetDetailData {
 }
 
 export function BetDetail({ bet }: { bet: BetDetailData }) {
+  const { publicKey, wallet, signTransaction } = useWallet();
+  const { connection } = useConnection();
   const [disputeReason, setDisputeReason] = useState("");
-  const [disputeWallet, setDisputeWallet] = useState("");
-  const [walletPubkey, setWalletPubkey] = useState("");
   const [loading, setLoading] = useState(false);
   const [syncing, setSyncing] = useState(false);
-  const [fundingTx, setFundingTx] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
+  const [txSig, setTxSig] = useState<string | null>(null);
 
   const blinkUrl = `${APP_URL}/api/actions/bet/${bet.id}`;
   const stakeSol = lamportsToSol(Number(bet.stakeLamports));
-  const isMaker = walletPubkey.length > 30 && walletPubkey === bet.maker.pubkey;
+  const connected = !!publicKey;
+  const walletPubkey = publicKey?.toBase58() || "";
+  const isMaker = connected && walletPubkey === bet.maker.pubkey;
 
   async function handleSync() {
     setSyncing(true);
@@ -84,31 +94,92 @@ export function BetDetail({ bet }: { bet: BetDetailData }) {
   }
 
   async function handleFund() {
-    if (!walletPubkey) return;
+    if (!publicKey || !signTransaction) return;
     setLoading(true);
     setMessage(null);
-    setFundingTx(null);
+    setTxSig(null);
     try {
       const res = await fetch(`/api/bets/${bet.id}/fund-maker/tx`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ maker_pubkey: walletPubkey }),
+        body: JSON.stringify({ maker_pubkey: publicKey.toBase58() }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error);
-      setFundingTx(data.transaction);
-      setMessage(
-        "Transaction built. Copy the base64 below and sign it with your wallet CLI:\n" +
-        "solana confirm-transaction <paste>"
-      );
+
+      const sig = await sendSerializedTransactionWithWallet({
+        serializedTransactionBase64: data.transaction,
+        wallet: { publicKey, signTransaction },
+        connection,
+      });
+      setTxSig(sig);
+      setMessage(`Funded! TX: ${sig.slice(0, 20)}...`);
+
+      // Auto-sync after funding
+      await fetch(`/api/bets/${bet.id}/sync`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({}),
+      });
+      window.location.reload();
     } catch (err) {
-      setMessage(err instanceof Error ? err.message : "Failed to build transaction");
+      const msg = err instanceof Error ? err.message : "Transaction failed";
+      if (msg.includes("User rejected")) {
+        setMessage("Transaction cancelled by wallet.");
+      } else if (msg.includes("insufficient")) {
+        setMessage("Insufficient devnet SOL. Get free SOL at faucet.solana.com");
+      } else {
+        setMessage(msg);
+      }
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleAccept() {
+    if (!publicKey || !signTransaction) return;
+    setLoading(true);
+    setMessage(null);
+    setTxSig(null);
+    try {
+      const res = await fetch(`/api/actions/bet/${bet.id}/accept`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ account: publicKey.toBase58() }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error);
+
+      const sig = await sendSerializedTransactionWithWallet({
+        serializedTransactionBase64: data.transaction,
+        wallet: { publicKey, signTransaction },
+        connection,
+      });
+      setTxSig(sig);
+      setMessage(`Accepted! TX: ${sig.slice(0, 20)}...`);
+
+      await fetch(`/api/bets/${bet.id}/sync`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({}),
+      });
+      window.location.reload();
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Transaction failed";
+      if (msg.includes("User rejected")) {
+        setMessage("Transaction cancelled by wallet.");
+      } else if (msg.includes("insufficient")) {
+        setMessage("Insufficient devnet SOL. Get free SOL at faucet.solana.com");
+      } else {
+        setMessage(msg);
+      }
     } finally {
       setLoading(false);
     }
   }
 
   async function handleDispute() {
+    if (!publicKey) return;
     setLoading(true);
     setMessage(null);
     try {
@@ -116,13 +187,14 @@ export function BetDetail({ bet }: { bet: BetDetailData }) {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          wallet_pubkey: disputeWallet,
+          wallet_pubkey: publicKey.toBase58(),
           reason: disputeReason,
         }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error);
-      setMessage("Dispute filed successfully. Status: DISPUTED");
+      setMessage("Dispute filed successfully.");
+      window.location.reload();
     } catch (err) {
       setMessage(err instanceof Error ? err.message : "Failed to file dispute");
     } finally {
@@ -283,95 +355,105 @@ export function BetDetail({ bet }: { bet: BetDetailData }) {
                   </AlertDescription>
                 </Alert>
 
-                <div className="space-y-2">
-                  <label className="text-sm font-medium" htmlFor="wallet-input">
-                    Your Wallet Pubkey
-                  </label>
-                  <input
-                    id="wallet-input"
-                    className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm"
-                    placeholder="Paste your Solana devnet wallet address"
-                    value={walletPubkey}
-                    onChange={(e) => setWalletPubkey(e.target.value)}
-                  />
-                </div>
-
-                {!walletPubkey && (
-                  <p className="text-xs text-muted-foreground">
-                    Enter your wallet pubkey to see available actions.
-                  </p>
-                )}
-
-                {walletPubkey && isMaker && (
+                {!connected && (
                   <div className="space-y-2">
-                    <p className="text-sm text-muted-foreground">
-                      You are the maker. Sign <code>initialize_bet</code> + <code>fund_maker</code> on-chain,
-                      then click Sync to update.
-                    </p>
-                    <div className="flex gap-2">
-                      <Button
-                        onClick={handleFund}
-                        disabled={loading}
-                        size="sm"
-                      >
-                        {loading ? "Building..." : `Build Fund TX (${stakeSol} SOL)`}
-                      </Button>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={handleSync}
-                        disabled={syncing}
-                      >
-                        {syncing ? "Syncing..." : "Sync From Chain"}
-                      </Button>
-                    </div>
-                    {fundingTx && (
-                      <div className="space-y-1">
-                        <p className="text-xs font-medium">Serialized Transaction (base64):</p>
-                        <code className="block text-xs bg-muted p-2 rounded break-all max-h-24 overflow-y-auto">
-                          {fundingTx}
-                        </code>
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => navigator.clipboard.writeText(fundingTx)}
-                        >
-                          <Copy className="h-3 w-3 mr-1" /> Copy TX
-                        </Button>
-                      </div>
-                    )}
+                    <p className="text-sm text-muted-foreground">Connect your wallet to continue.</p>
+                    <WalletMultiButton />
                   </div>
                 )}
 
-                {walletPubkey && !isMaker && (
+                {connected && isMaker && (
+                  <div className="space-y-2">
+                    <Button onClick={handleFund} disabled={loading}>
+                      {loading ? (
+                        <><Loader2 className="h-4 w-4 animate-spin mr-2" /> Signing...</>
+                      ) : (
+                        `Fund Escrow (${stakeSol} SOL)`
+                      )}
+                    </Button>
+                    <p className="text-xs text-muted-foreground">
+                      Your wallet will open to sign the transaction.
+                    </p>
+                  </div>
+                )}
+
+                {connected && !isMaker && (
                   <p className="text-sm text-muted-foreground">
-                    Waiting for the maker (<code>{shortenAddress(bet.maker.pubkey, 6)}</code>) to fund the escrow.
-                    Check back later or click Sync.
+                    Only the maker wallet (<code>{shortenAddress(bet.maker.pubkey, 6)}</code>) can fund this escrow.
+                    Waiting for maker to fund.
                   </p>
                 )}
               </div>
             )}
             {bet.makerFunded && (
-              <>
-                <p className="text-sm">
-                  Escrow funded. Share the Blink link below with a taker.
-                </p>
-                <div className="flex items-center gap-2">
-                  <code className="flex-1 text-xs bg-muted p-2 rounded overflow-x-auto">
-                    {blinkUrl}
-                  </code>
-                  <Button
-                    variant="outline"
-                    size="icon"
-                    onClick={() => navigator.clipboard.writeText(blinkUrl)}
-                  >
-                    <Copy className="h-4 w-4" />
+              <div className="space-y-3">
+                {!connected && (
+                  <div className="space-y-2">
+                    <p className="text-sm">Escrow funded ({stakeSol} SOL). Connect wallet to accept or share the link.</p>
+                    <WalletMultiButton />
+                  </div>
+                )}
+
+                {connected && isMaker && (
+                  <>
+                    <p className="text-sm">
+                      You funded this wager. Share the link below with a taker.
+                    </p>
+                    <div className="flex items-center gap-2">
+                      <code className="flex-1 text-xs bg-muted p-2 rounded overflow-x-auto">
+                        {blinkUrl}
+                      </code>
+                      <Button
+                        variant="outline"
+                        size="icon"
+                        onClick={() => navigator.clipboard.writeText(blinkUrl)}
+                      >
+                        <Copy className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  </>
+                )}
+
+                {connected && !isMaker && (
+                  <div className="space-y-2">
+                    <p className="text-sm">
+                      Take the opposite side of this wager by depositing {stakeSol} SOL.
+                    </p>
+                    <Button onClick={handleAccept} disabled={loading}>
+                      {loading ? (
+                        <><Loader2 className="h-4 w-4 animate-spin mr-2" /> Signing...</>
+                      ) : (
+                        `Accept Wager (${stakeSol} SOL)`
+                      )}
+                    </Button>
+                  </div>
+                )}
+
+                <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                  <span>Blink:</span>
+                  <code className="flex-1 bg-muted p-1 rounded overflow-x-auto">{blinkUrl}</code>
+                  <Button variant="ghost" size="sm" onClick={() => navigator.clipboard.writeText(blinkUrl)}>
+                    <Copy className="h-3 w-3" />
                   </Button>
                 </div>
-                <p className="text-xs text-muted-foreground">
-                  The taker opens this link, connects a devnet wallet, and signs the <code>accept_bet</code> transaction.
-                </p>
-              </>
+              </div>
+            )}
+            {message && (
+              <Alert variant={txSig ? "default" : "destructive"}>
+                <AlertDescription>
+                  {message}
+                  {txSig && (
+                    <a
+                      href={`https://explorer.solana.com/tx/${txSig}?cluster=devnet`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="ml-1 underline inline-flex items-center gap-0.5"
+                    >
+                      Explorer <ExternalLink className="h-3 w-3" />
+                    </a>
+                  )}
+                </AlertDescription>
+              </Alert>
             )}
             <Button
               variant="outline"
@@ -470,27 +552,31 @@ export function BetDetail({ bet }: { bet: BetDetailData }) {
             <CardTitle className="text-base">File a Dispute</CardTitle>
           </CardHeader>
           <CardContent className="space-y-3">
-            <input
-              className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm"
-              placeholder="Your wallet pubkey"
-              value={disputeWallet}
-              onChange={(e) => setDisputeWallet(e.target.value)}
-            />
-            <Textarea
-              placeholder="Explain why you dispute this result..."
-              value={disputeReason}
-              onChange={(e) => setDisputeReason(e.target.value)}
-              rows={3}
-            />
-            <Button
-              onClick={handleDispute}
-              disabled={loading || disputeReason.length < 10 || !disputeWallet}
-              variant="destructive"
-            >
-              {loading ? "Filing..." : "File Dispute"}
-            </Button>
-            {message && (
-              <p className="text-sm text-muted-foreground">{message}</p>
+            {!connected && (
+              <div className="space-y-2">
+                <p className="text-sm text-muted-foreground">Connect your wallet to file a dispute.</p>
+                <WalletMultiButton />
+              </div>
+            )}
+            {connected && (
+              <>
+                <p className="text-xs text-muted-foreground">
+                  Filing as: <code>{shortenAddress(walletPubkey, 6)}</code>
+                </p>
+                <Textarea
+                  placeholder="Explain why you dispute this result..."
+                  value={disputeReason}
+                  onChange={(e) => setDisputeReason(e.target.value)}
+                  rows={3}
+                />
+                <Button
+                  onClick={handleDispute}
+                  disabled={loading || disputeReason.length < 10}
+                  variant="destructive"
+                >
+                  {loading ? "Filing..." : "File Dispute"}
+                </Button>
+              </>
             )}
           </CardContent>
         </Card>

@@ -1,7 +1,16 @@
 "use client";
 
+import dynamic from "next/dynamic";
 import Link from "next/link";
 import { AlertTriangle, Bug } from "lucide-react";
+
+const WalletMultiButton = dynamic(
+  () =>
+    import("@solana/wallet-adapter-react-ui").then(
+      (m) => m.WalletMultiButton
+    ),
+  { ssr: false }
+);
 
 const BUG_REPORT_URL = process.env.NEXT_PUBLIC_BUG_REPORT_URL;
 
@@ -36,6 +45,7 @@ export function Header() {
               Report Bug
             </a>
           )}
+          <WalletMultiButton />
         </nav>
       </div>
       <div className="bg-warning/10 border-b border-warning/30 px-4 py-1.5 text-center text-xs text-warning-foreground flex items-center justify-center gap-1.5">
