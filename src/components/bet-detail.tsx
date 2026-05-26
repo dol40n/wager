@@ -51,12 +51,15 @@ interface BetDetailData {
 export function BetDetail({ bet }: { bet: BetDetailData }) {
   const [disputeReason, setDisputeReason] = useState("");
   const [disputeWallet, setDisputeWallet] = useState("");
+  const [walletPubkey, setWalletPubkey] = useState("");
   const [loading, setLoading] = useState(false);
   const [syncing, setSyncing] = useState(false);
+  const [fundingTx, setFundingTx] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
 
   const blinkUrl = `${APP_URL}/api/actions/bet/${bet.id}`;
   const stakeSol = lamportsToSol(Number(bet.stakeLamports));
+  const isMaker = walletPubkey.length > 30 && walletPubkey === bet.maker.pubkey;
 
   async function handleSync() {
     setSyncing(true);
@@ -77,6 +80,31 @@ export function BetDetail({ bet }: { bet: BetDetailData }) {
       setMessage("Sync request failed");
     } finally {
       setSyncing(false);
+    }
+  }
+
+  async function handleFund() {
+    if (!walletPubkey) return;
+    setLoading(true);
+    setMessage(null);
+    setFundingTx(null);
+    try {
+      const res = await fetch(`/api/bets/${bet.id}/fund-maker/tx`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ maker_pubkey: walletPubkey }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error);
+      setFundingTx(data.transaction);
+      setMessage(
+        "Transaction built. Copy the base64 below and sign it with your wallet CLI:\n" +
+        "solana confirm-transaction <paste>"
+      );
+    } catch (err) {
+      setMessage(err instanceof Error ? err.message : "Failed to build transaction");
+    } finally {
+      setLoading(false);
     }
   }
 
@@ -248,17 +276,80 @@ export function BetDetail({ bet }: { bet: BetDetailData }) {
           </CardHeader>
           <CardContent className="space-y-3">
             {!bet.makerFunded && (
-              <>
+              <div className="space-y-3">
                 <Alert>
                   <AlertDescription>
-                    The maker must fund the escrow on-chain before a taker can accept.
-                    Use the Sync button below after signing the <code>initialize_bet</code> and <code>fund_maker</code> transactions.
+                    The maker must fund the escrow ({stakeSol} SOL) before a taker can accept.
                   </AlertDescription>
                 </Alert>
-                <p className="text-xs text-muted-foreground">
-                  Maker wallet: <code>{shortenAddress(bet.maker.pubkey, 6)}</code>
-                </p>
-              </>
+
+                <div className="space-y-2">
+                  <label className="text-sm font-medium" htmlFor="wallet-input">
+                    Your Wallet Pubkey
+                  </label>
+                  <input
+                    id="wallet-input"
+                    className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm"
+                    placeholder="Paste your Solana devnet wallet address"
+                    value={walletPubkey}
+                    onChange={(e) => setWalletPubkey(e.target.value)}
+                  />
+                </div>
+
+                {!walletPubkey && (
+                  <p className="text-xs text-muted-foreground">
+                    Enter your wallet pubkey to see available actions.
+                  </p>
+                )}
+
+                {walletPubkey && isMaker && (
+                  <div className="space-y-2">
+                    <p className="text-sm text-muted-foreground">
+                      You are the maker. Sign <code>initialize_bet</code> + <code>fund_maker</code> on-chain,
+                      then click Sync to update.
+                    </p>
+                    <div className="flex gap-2">
+                      <Button
+                        onClick={handleFund}
+                        disabled={loading}
+                        size="sm"
+                      >
+                        {loading ? "Building..." : `Build Fund TX (${stakeSol} SOL)`}
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={handleSync}
+                        disabled={syncing}
+                      >
+                        {syncing ? "Syncing..." : "Sync From Chain"}
+                      </Button>
+                    </div>
+                    {fundingTx && (
+                      <div className="space-y-1">
+                        <p className="text-xs font-medium">Serialized Transaction (base64):</p>
+                        <code className="block text-xs bg-muted p-2 rounded break-all max-h-24 overflow-y-auto">
+                          {fundingTx}
+                        </code>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => navigator.clipboard.writeText(fundingTx)}
+                        >
+                          <Copy className="h-3 w-3 mr-1" /> Copy TX
+                        </Button>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {walletPubkey && !isMaker && (
+                  <p className="text-sm text-muted-foreground">
+                    Waiting for the maker (<code>{shortenAddress(bet.maker.pubkey, 6)}</code>) to fund the escrow.
+                    Check back later or click Sync.
+                  </p>
+                )}
+              </div>
             )}
             {bet.makerFunded && (
               <>
