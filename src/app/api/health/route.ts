@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { Connection } from "@solana/web3.js";
 import { SOLANA_RPC_URL, PROGRAM_ID } from "@/lib/constants";
+import { getResolverPublicKey } from "@/lib/solana/program";
 
 export async function GET() {
   const checks: Record<string, { ok: boolean; latencyMs?: number; error?: string }> = {};
@@ -23,12 +24,21 @@ export async function GET() {
     checks.solana_rpc = { ok: false, error: e instanceof Error ? e.message : "unknown" };
   }
 
+  let resolverPubkey: string | null = null;
+  try {
+    resolverPubkey = getResolverPublicKey().toBase58();
+    checks.resolver_key = { ok: true };
+  } catch (e) {
+    checks.resolver_key = { ok: false, error: e instanceof Error ? e.message : "unknown" };
+  }
+
   const allOk = Object.values(checks).every((c) => c.ok);
 
   return NextResponse.json(
     {
       status: allOk ? "healthy" : "degraded",
       program_id: PROGRAM_ID.toBase58(),
+      resolver_authority: resolverPubkey,
       checks,
       timestamp: new Date().toISOString(),
     },
