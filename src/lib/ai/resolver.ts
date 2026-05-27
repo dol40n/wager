@@ -22,22 +22,22 @@ const SYSTEM_PROMPT = `You are a wager resolution engine. Given a bet's normaliz
 Respond ONLY with valid JSON matching the ResolveResult schema. No markdown, no extra text.`;
 
 const evidenceItemSchema = z.object({
-  source_url: z.string().min(1),
-  source_name: z.string().min(1),
-  published_or_observed_at: z.string().nullable(),
-  relevant_excerpt: z.string().min(1),
-  supports: z.enum(["YES", "NO", "NEUTRAL"]),
-  explanation: z.string().min(1),
+  source_url: z.string().default(""),
+  source_name: z.string().default("unknown"),
+  published_or_observed_at: z.string().nullable().default(null),
+  relevant_excerpt: z.string().default(""),
+  supports: z.enum(["YES", "NO", "NEUTRAL"]).default("NEUTRAL"),
+  explanation: z.string().default(""),
 });
 
 const resolveResultSchema = z.object({
-  bet_id: z.string(),
-  winner_side: z.enum(["YES", "NO", "UNKNOWN"]),
-  confidence: z.number().min(0).max(1),
-  needs_manual_review: z.boolean(),
-  evidence: z.array(evidenceItemSchema),
-  reasoning_summary: z.string(),
-  failure_reason: z.string().nullable(),
+  bet_id: z.string().optional().default(""),
+  winner_side: z.enum(["YES", "NO", "UNKNOWN"]).default("UNKNOWN"),
+  confidence: z.number().min(0).max(1).default(0),
+  needs_manual_review: z.boolean().default(true),
+  evidence: z.array(evidenceItemSchema).default([]),
+  reasoning_summary: z.string().default(""),
+  failure_reason: z.string().nullable().default(null),
 });
 
 export interface BetForResolution {
@@ -162,7 +162,7 @@ export async function resolveWager(bet: BetForResolution): Promise<ResolveResult
       ).join("\n\n")
     : "\n\nNo web search results found. If you cannot determine the outcome from your knowledge, return UNKNOWN with needs_manual_review: true.";
 
-  const userMessage = JSON.stringify({
+  const betData = JSON.stringify({
     bet_id: bet.id,
     question: bet.normalizedQuestion,
     yes_definition: bet.yesDefinition,
@@ -172,7 +172,9 @@ export async function resolveWager(bet: BetForResolution): Promise<ResolveResult
     resolution_method: bet.resolutionMethod,
     objective_criteria: bet.objectiveCriteria,
     category: bet.category,
-  }) + searchContext;
+  }, null, 2);
+
+  const userMessage = `BET DATA:\n${betData}\n${searchContext}\n\nRespond ONLY with valid JSON matching the schema. No markdown.`;
 
   console.log(`[resolver] Starting AI resolution for bet ${bet.id}`);
 
