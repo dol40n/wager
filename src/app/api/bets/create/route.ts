@@ -63,10 +63,7 @@ export async function POST(request: Request) {
       snapshotTimeUtc?: Date;
     } = {};
 
-    if (
-      parsed.category === "crypto" &&
-      parsed.resolution_method === "api"
-    ) {
+    if (parsed.category === "crypto") {
       const symbol = detectCryptoSymbol(parsed.normalized_question);
       if (symbol) {
         try {
@@ -130,6 +127,10 @@ export async function POST(request: Request) {
       id: bet.id,
       betIdHash: betIdHash.toString("hex"),
       onChainAddress: betPDA.toBase58(),
+      snapshot: snapshotData.snapshotPrice ? {
+        price: snapshotData.snapshotPrice,
+        symbol: snapshotData.snapshotSymbol,
+      } : null,
     });
   } catch (error) {
     if (error instanceof Error && error.name === "ZodError") {

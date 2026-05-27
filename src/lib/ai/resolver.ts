@@ -68,7 +68,6 @@ async function resolveCryptoPriceComparison(
 ): Promise<ResolveResult | null> {
   if (
     bet.category !== "crypto" ||
-    bet.resolutionMethod !== "API" ||
     !bet.snapshotSymbol ||
     !bet.snapshotPrice ||
     !bet.snapshotTimeUtc
