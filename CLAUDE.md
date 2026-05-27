@@ -2,10 +2,11 @@
 
 ## What This Project Is
 
-Universal AI-powered peer-to-peer wager escrow on Solana devnet. Users create bets in natural language, AI normalizes into YES/NO conditions, funds go into PDA escrow, taker accepts via Blink/wallet, AI resolver determines outcome, 24h dispute window, then payout.
+Universal AI-powered peer-to-peer wager escrow on Solana devnet. Users create bets in natural language, AI normalizes into YES/NO conditions, funds go into PDA escrow, taker accepts via Blink/wallet, AI resolver determines outcome, admin finalizes on-chain payout.
 
 **Live**: https://wager-smoky.vercel.app
 **Program**: `7fQ9Dh4iNrp2mfjtBthqrmrcYZXhSaCVZcyXVuCs6hFN` (Solana devnet)
+**Resolver**: `2K8jv4HT8Er7fSTEtJ3yAzqUJoQ6eLiRPYxYW9KTmECa`
 **Status**: Private beta (devnet only, not mainnet-ready)
 
 ## Tech Stack
@@ -17,7 +18,7 @@ Universal AI-powered peer-to-peer wager escrow on Solana devnet. Users create be
 - Tavily for web search evidence
 - Binance/CoinGecko for crypto price snapshots
 - Solana wallet adapter (Phantom/Solflare)
-- Vercel hosting with daily cron
+- Vercel hosting with daily cron resolver
 
 ## Key Architecture
 
@@ -36,41 +37,84 @@ Frontend (Next.js) → API Routes → Prisma/PostgreSQL
 propose_result, dispute_result, finalize_result_after_dispute_window,
 admin_finalize_disputed, refund_if_expired_or_unresolved
 
-PDA escrow, 1% fee, 24h dispute window, 10 SOL max stake.
+- PDA escrow, 1% fee, 24h dispute window, 10 SOL max stake
+- dispute_result accepts maker, taker, OR resolver_authority as disputer
+- Admin finalize flow: propose → auto-dispute (resolver) → admin_finalize (instant)
 
 ## Resolution Pipeline
 
-1. Crypto + price snapshot → Binance/CoinGecko price comparison (99% confidence)
-2. Any topic + Tavily key → web search → Claude AI analysis
+1. Crypto + price snapshot → Binance/CoinGecko price comparison (99% confidence, no AI)
+2. Any topic + TAVILY_API_KEY → Tavily web search → Claude AI analysis
 3. Fallback → Claude from training data (low confidence → manual review)
 
-## Critical Safety Rules
+Price snapshots are saved at bet creation (CoinGecko, Binance as primary with CoinGecko fallback since Binance blocks US datacenter IPs).
 
-- DB-only finalize/refund is DISABLED (HTTP 410). All settlement goes through `/api/admin/bets/:id/finalize-onchain`
-- Resolver authority keypair signs on-chain transactions from Vercel backend
-- should_reject=true blocks bet creation (past deadlines, ambiguity > 0.25, missing reference prices)
-- Admin actions require typed confirmation ("FINALIZE" / "REFUND")
-- Evidence hashes use canonicalized JSON (sorted by source_url)
+## Admin Finalize Flow (Critical)
+
+```
+finalize-onchain handles ALL on-chain states:
+  ACCEPTED → propose_result → dispute_result → admin_finalize_disputed
+  RESULT_PROPOSED → dispute_result → admin_finalize_disputed
+  DISPUTED → admin_finalize_disputed
+```
+
+- DB-only finalize/refund is DISABLED (HTTP 410)
+- DB status FINALIZED only AFTER on-chain vault verified empty
+- Resolver authority signs all on-chain TX from Vercel backend
+- Admin action logs stored with before/after status, evidence hash, payout
+
+## Normalize Safety Rules
+
+- CURRENT_DATE_UTC and CURRENT_YEAR injected into every AI prompt
+- Past deadlines rejected server-side (deadline <= now + 1min)
+- Ambiguity > 0.25 → should_reject = true (blocks creation)
+- "higher/выше" without $ target → rejected ("higher than what?")
+- "approximately/примерно" → rejected (needs explicit tolerance)
+- AI cannot invent current prices — requires backend snapshot
+- Rejected wagers show ONLY rejection reason, never YES/NO definitions
+
+## Key API Routes
+
+```
+POST /api/bets/normalize              — AI normalize
+POST /api/bets/create                 — Create bet + price snapshot
+POST /api/bets/:id/fund-maker/tx      — Build init+fund TX (auto-detects if PDA needs init)
+POST /api/bets/:id/sync               — Sync DB from on-chain state (public for read, admin for override)
+POST /api/bets/:id/dispute            — File dispute
+GET  /api/actions/bet/:id              — Blink GET (redirects browsers to /bet/:id)
+POST /api/actions/bet/:id/accept       — Blink POST accept TX
+POST /api/admin/bets/:id/finalize-onchain — Full on-chain settlement
+POST /api/admin/bets/:id/refund-onchain   — DB refund (on-chain needs 7-day timeout)
+GET  /api/cron/resolve                 — Batch resolver (Vercel cron daily, or manual with admin key)
+GET  /api/health                       — DB + RPC + resolver key check
+```
 
 ## Build & Test
 
 ```bash
 npm run typecheck    # 0 errors
 npm test             # 162 tests (vitest)
-npm run build        # 22 routes
+npm run build        # ~22 routes
 npm run generate:idl # IDL from source (anchor build IDL is broken)
 
-# Anchor (requires Solana toolchain)
+# Anchor (requires Solana toolchain — see TOOLCHAIN.md)
 bash scripts/pin-deps.sh
 cargo-build-sbf --manifest-path programs/wager_escrow/Cargo.toml --sbf-out-dir target/deploy
 anchor test --skip-build  # 21 on-chain tests
+
+# Deploy program to devnet
+solana program deploy target/deploy/wager_escrow.so --program-id target/deploy/wager_escrow-keypair.json --url devnet
+
+# Deploy app to Vercel
+vercel deploy --prod --yes
 ```
 
 ## Env Vars (Vercel)
 
 DATABASE_URL, ANTHROPIC_API_KEY, WAGER_PROGRAM_ID, ADMIN_API_KEY,
 FEE_WALLET, RESOLVER_AUTHORITY_PRIVATE_KEY, TAVILY_API_KEY,
-CRON_SECRET, NEXT_PUBLIC_SOLANA_RPC_URL, NEXT_PUBLIC_APP_URL
+CRON_SECRET, NEXT_PUBLIC_SOLANA_RPC_URL, NEXT_PUBLIC_APP_URL,
+NEXT_PUBLIC_BUG_REPORT_URL
 
 ## Key Docs
 
@@ -79,6 +123,14 @@ CRON_SECRET, NEXT_PUBLIC_SOLANA_RPC_URL, NEXT_PUBLIC_APP_URL
 - SECURITY_REVIEW.md — threat model, mainnet blockers
 - PRIVATE_BETA.md — tester instructions
 - DEMO_SCRIPT.md — step-by-step demo
+- BETA_KNOWN_LIMITATIONS.md — known limitations
+
+## Known Issues
+
+- utils.ts: hashEvidence uses lazy require('crypto') — don't move to top-level import (breaks client components)
+- Binance API blocked from Vercel US IPs — CoinGecko used as fallback for price snapshots
+- Anchor 0.30.1 IDL generation broken — use npm run generate:idl
+- In-memory rate limiter resets on Vercel cold starts
 
 ## Rules
 
@@ -87,5 +139,5 @@ CRON_SECRET, NEXT_PUBLIC_SOLANA_RPC_URL, NEXT_PUBLIC_APP_URL
 - ALWAYS read a file before editing it
 - NEVER commit secrets, credentials, or .env files
 - Keep files under 500 lines
-- Do not change on-chain settlement logic without explicit request
+- After fixing bugs: typecheck → deploy to Vercel → verify on hosted URL
 - Do not claim mainnet readiness — this is devnet only
