@@ -5,6 +5,7 @@ import { createBetSchema } from "@/lib/validators";
 import { computeBetIdHash, deriveBetPDA } from "@/lib/solana/program";
 import { isRateLimited } from "@/lib/rate-limit";
 import { fetchBinancePrice } from "@/lib/price-snapshot";
+import { calculateFeeBps, getSolPriceUsd } from "@/lib/fees";
 import {
   RATE_LIMIT_MAX_CREATES,
   MAX_ACTIVE_BETS_PER_WALLET,
@@ -13,7 +14,7 @@ import {
 export async function POST(request: Request) {
   try {
     const ip = request.headers.get("x-forwarded-for") || "unknown";
-    if (isRateLimited(`create:${ip}`, RATE_LIMIT_MAX_CREATES)) {
+    if (await isRateLimited(`create:${ip}`, RATE_LIMIT_MAX_CREATES)) {
       return NextResponse.json(
         { error: "Rate limit exceeded. Try again in 1 minute." },
         { status: 429 }
@@ -83,6 +84,18 @@ export async function POST(request: Request) {
       }
     }
 
+    // Server-side fee calculation — ignores client fee_bps
+    const solPrice = await getSolPriceUsd();
+    const feeCalc = calculateFeeBps(parsed.category, parsed.stake_lamports, solPrice);
+
+    if (feeCalc.stakeTooLow) {
+      const minSol = feeCalc.minStakeLamports! / 1_000_000_000;
+      return NextResponse.json(
+        { error: `Minimum stake for ${parsed.category} bets is ${minSol.toFixed(3)} SOL at current SOL price.` },
+        { status: 400 }
+      );
+    }
+
     const bet = await prisma.bet.create({
       data: {
         originalText: parsed.original_text,
@@ -102,7 +115,7 @@ export async function POST(request: Request) {
         ambiguityNotes: parsed.ambiguity_notes,
         makerSide: parsed.maker_side,
         stakeLamports: BigInt(parsed.stake_lamports),
-        feeBps: parsed.fee_bps,
+        feeBps: feeCalc.feeBps,
         makerId: wallet.id,
         betIdHash: createHash("sha256")
           .update(Date.now().toString() + parsed.maker_pubkey)
@@ -127,6 +140,7 @@ export async function POST(request: Request) {
       id: bet.id,
       betIdHash: betIdHash.toString("hex"),
       onChainAddress: betPDA.toBase58(),
+      fee: { bps: feeCalc.feeBps, percent: feeCalc.feePercent },
       snapshot: snapshotData.snapshotPrice ? {
         price: snapshotData.snapshotPrice,
         symbol: snapshotData.snapshotSymbol,

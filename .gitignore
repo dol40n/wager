@@ -59,3 +59,4 @@ Cargo.lock is committed for reproducible builds
 .claude/
 .mcp.json
 
+.env*

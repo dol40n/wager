@@ -7,7 +7,7 @@ import { RATE_LIMIT_MAX_NORMALIZES, REJECTED_TOPICS } from "@/lib/constants";
 export async function POST(request: Request) {
   try {
     const ip = request.headers.get("x-forwarded-for") || "unknown";
-    if (isRateLimited(`normalize:${ip}`, RATE_LIMIT_MAX_NORMALIZES)) {
+    if (await isRateLimited(`normalize:${ip}`, RATE_LIMIT_MAX_NORMALIZES)) {
       return NextResponse.json(
         { error: "Rate limit exceeded. Try again in 1 minute." },
         { status: 429 }

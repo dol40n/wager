@@ -66,6 +66,8 @@ model Bet {
   disputeDeadlineUtc  DateTime?
   resolverConfidence  Float?
   needsManualReview   Boolean          @default(false)
+  resolveAttempts     Int              @default(0)
+  lastResolveError    String?
   allowedTaker        String?
   snapshotSource      String?
   snapshotSymbol      String?
@@ -118,6 +120,14 @@ model Transaction {
   type      String
   status    String
   createdAt DateTime @default(now())
+}
+
+model RateLimitEntry {
+  id        String   @id @default(cuid())
+  key       String
+  createdAt DateTime @default(now())
+
+  @@index([key, createdAt])
 }
 
 model AdminActionLog {

@@ -1,61 +1,32 @@
+import { prisma } from "./db";
 import { RATE_LIMIT_WINDOW_MS } from "./constants";
 
-export interface RateLimitAdapter {
-  check(key: string, maxRequests: number, windowMs: number): Promise<boolean>;
-}
+export async function isRateLimited(
+  key: string,
+  maxRequests: number,
+  windowMs: number = RATE_LIMIT_WINDOW_MS
+): Promise<boolean> {
+  const windowStart = new Date(Date.now() - windowMs);
 
-// WARNING: In-memory adapter is NOT production-safe.
-// It resets on every serverless cold start and does not share state across instances.
-// For production, implement RedisAdapter using Upstash or similar.
-class MemoryAdapter implements RateLimitAdapter {
-  private buckets = new Map<string, number[]>();
+  try {
+    const count = await prisma.rateLimitEntry.count({
+      where: { key, createdAt: { gte: windowStart } },
+    });
 
-  async check(key: string, maxRequests: number, windowMs: number): Promise<boolean> {
-    const now = Date.now();
-    const timestamps = this.buckets.get(key) || [];
-    const recent = timestamps.filter((t) => now - t < windowMs);
+    if (count >= maxRequests) return true;
 
-    if (recent.length >= maxRequests) {
-      this.buckets.set(key, recent);
-      return true;
-    }
-
-    recent.push(now);
-    this.buckets.set(key, recent);
+    await prisma.rateLimitEntry.create({ data: { key } });
+    return false;
+  } catch {
+    // DB error → fail open to avoid blocking legitimate requests
     return false;
   }
 }
 
-// Placeholder for production: swap with RedisAdapter
-// class RedisAdapter implements RateLimitAdapter {
-//   constructor(private redis: Redis) {}
-//   async check(key: string, maxRequests: number, windowMs: number): Promise<boolean> {
-//     const count = await this.redis.incr(key);
-//     if (count === 1) await this.redis.pexpire(key, windowMs);
-//     return count > maxRequests;
-//   }
-// }
-
-const adapter: RateLimitAdapter = new MemoryAdapter();
-
-export function isRateLimited(
-  key: string,
-  maxRequests: number,
-  windowMs: number = RATE_LIMIT_WINDOW_MS
-): boolean {
-  // Synchronous wrapper for the memory adapter (async for interface compat)
-  const now = Date.now();
-  const memAdapter = adapter as MemoryAdapter;
-  const buckets = (memAdapter as unknown as { buckets: Map<string, number[]> }).buckets;
-  const timestamps = buckets.get(key) || [];
-  const recent = timestamps.filter((t) => now - t < windowMs);
-
-  if (recent.length >= maxRequests) {
-    buckets.set(key, recent);
-    return true;
-  }
-
-  recent.push(now);
-  buckets.set(key, recent);
-  return false;
+export async function cleanupRateLimits(): Promise<number> {
+  const cutoff = new Date(Date.now() - RATE_LIMIT_WINDOW_MS * 2);
+  const { count } = await prisma.rateLimitEntry.deleteMany({
+    where: { createdAt: { lt: cutoff } },
+  });
+  return count;
 }
