@@ -8,9 +8,11 @@ import {
 import { WalletModalProvider } from "@solana/wallet-adapter-react-ui";
 import { PhantomWalletAdapter } from "@solana/wallet-adapter-phantom";
 import { SolflareWalletAdapter } from "@solana/wallet-adapter-solflare";
-import { SOLANA_RPC_URL } from "@/lib/constants";
 
 import "@solana/wallet-adapter-react-ui/styles.css";
+
+const RPC_URL =
+  process.env.NEXT_PUBLIC_SOLANA_RPC_URL || "https://api.devnet.solana.com";
 
 export function SolanaWalletProvider({
   children,
@@ -23,7 +25,7 @@ export function SolanaWalletProvider({
   );
 
   return (
-    <ConnectionProvider endpoint={SOLANA_RPC_URL}>
+    <ConnectionProvider endpoint={RPC_URL}>
       <WalletProvider wallets={wallets} autoConnect>
         <WalletModalProvider>{children}</WalletModalProvider>
       </WalletProvider>
