@@ -2,7 +2,7 @@
 
 ## What This Project Is
 
-Universal AI-powered peer-to-peer wager escrow on Solana devnet. Users create bets in natural language, AI normalizes into YES/NO conditions, funds go into PDA escrow, taker accepts via Blink/wallet, AI resolver determines outcome, admin finalizes on-chain payout.
+Universal AI-powered peer-to-peer wager escrow on Solana devnet. Users create bets in natural language, AI normalizes into YES/NO conditions, funds go into PDA escrow, taker accepts via Blink/wallet, AI resolver determines outcome, auto-finalize settles on-chain payout.
 
 **Live**: https://wager-smoky.vercel.app
 **Program**: `7fQ9Dh4iNrp2mfjtBthqrmrcYZXhSaCVZcyXVuCs6hFN` (Solana devnet)
@@ -14,17 +14,17 @@ Universal AI-powered peer-to-peer wager escrow on Solana devnet. Users create be
 - Next.js 16 + TypeScript + Tailwind + shadcn/ui
 - Solana Anchor program (Rust) with 9 instructions
 - Prisma + PostgreSQL (Neon hosted)
-- Anthropic Claude for AI normalize + resolve
-- Tavily for web search evidence
+- Anthropic Claude (Sonnet for resolve, Haiku for adversarial verification)
+- Tavily for web search evidence (advanced depth, multi-query)
 - Binance/CoinGecko for crypto price snapshots
 - Solana wallet adapter (Phantom/Solflare)
-- Vercel hosting with daily cron resolver
+- Vercel hosting with 4 automated crons
 
 ## Key Architecture
 
 ```
 Frontend (Next.js) → API Routes → Prisma/PostgreSQL
-                                → Anthropic AI (normalize + resolve)
+                                → Anthropic AI (normalize + resolve + challenger)
                                 → Tavily web search (evidence)
                                 → Binance/CoinGecko (price snapshots)
                                 → Solana devnet (PDA escrow)
@@ -37,9 +37,26 @@ Frontend (Next.js) → API Routes → Prisma/PostgreSQL
 propose_result, dispute_result, finalize_result_after_dispute_window,
 admin_finalize_disputed, refund_if_expired_or_unresolved
 
-- PDA escrow, 1% fee, 24h dispute window, 10 SOL max stake
+- PDA escrow, tiered fees (0.5%–3%), 24h dispute window, 10 SOL max stake
 - dispute_result accepts maker, taker, OR resolver_authority as disputer
 - Admin finalize flow: propose → auto-dispute (resolver) → admin_finalize (instant)
+- Shared settleOnChain() is the single source of truth for all on-chain transitions
+- Idempotent: re-reads on-chain status between each TX step, safe to retry
+
+## Fee Structure
+
+```
+Crypto:      < 5 SOL → 1%,  ≥ 5 SOL → 0.75%
+Non-crypto:  < 0.25 SOL → 3%,  0.25–0.99 → 2%,  1–4.99 → 1%,  ≥ 5 → 0.75%
+VIP:         0.5% flat (all categories, all stakes)
+
+Non-crypto USD floor: $0.20 minimum fee
+If floor would require > 5% → reject stake with min stake message
+Fee calculated server-side, client fee_bps ignored
+```
+
+VIP auto-promotion: 10+ finalized bets OR 50+ SOL volume (weekly cron).
+Manual VIP via VipWallet table (reason: "manual").
 
 ## Resolution Pipeline
 
@@ -59,22 +76,25 @@ after dispute window → auto-finalize cron
 - Challenger sees raw evidence + market wording, not just resolver summary
 - Checks: wording ambiguity, exploitable edge cases, evidence gaps, timeline attacks
 - Challenge results logged to ResolutionEvidence (sourceName: "adversarial-challenger")
+- Resolver retry: max 3 attempts, tracks resolveAttempts + lastResolveError per bet
 
 Price snapshots are saved at bet creation (CoinGecko, Binance as primary with CoinGecko fallback since Binance blocks US datacenter IPs).
 
 ## Admin Finalize Flow (Critical)
 
 ```
-finalize-onchain handles ALL on-chain states:
-  ACCEPTED → propose_result → dispute_result → admin_finalize_disputed
-  RESULT_PROPOSED → dispute_result → admin_finalize_disputed
-  DISPUTED → admin_finalize_disputed
+settleOnChain() handles ALL on-chain states (idempotent):
+  ACCEPTED → propose_result → refresh → dispute_result → refresh → admin_finalize
+  RESULT_PROPOSED → dispute_result → refresh → admin_finalize
+  DISPUTED → admin_finalize
+  FINALIZED → no-op (returns success)
 ```
 
 - DB-only finalize/refund is DISABLED (HTTP 410)
 - DB status FINALIZED only AFTER on-chain vault verified empty
 - Resolver authority signs all on-chain TX from Vercel backend
 - Admin action logs stored with before/after status, evidence hash, payout
+- settleOnChain() used by both admin finalize and auto-finalize cron
 
 ## Normalize Safety Rules
 
@@ -89,26 +109,37 @@ finalize-onchain handles ALL on-chain states:
 ## Key API Routes
 
 ```
-POST /api/bets/normalize              — AI normalize
-POST /api/bets/create                 — Create bet + price snapshot
+POST /api/bets/normalize              — AI normalize (rate limited)
+POST /api/bets/create                 — Create bet + price snapshot + fee calculation (rate limited)
 POST /api/bets/:id/fund-maker/tx      — Build init+fund TX (auto-detects if PDA needs init)
 POST /api/bets/:id/sync               — Sync DB from on-chain state (public for read, admin for override)
 POST /api/bets/:id/dispute            — File dispute
 GET  /api/actions/bet/:id              — Blink GET (redirects browsers to /bet/:id)
 POST /api/actions/bet/:id/accept       — Blink POST accept TX
-POST /api/admin/bets/:id/finalize-onchain — Full on-chain settlement
+POST /api/admin/bets/:id/finalize-onchain — Full on-chain settlement (uses settleOnChain)
 POST /api/admin/bets/:id/refund-onchain   — DB refund (on-chain needs 7-day timeout)
-GET  /api/cron/resolve                 — Batch resolver (Vercel cron daily 00:00 UTC, or manual with admin key)
-GET  /api/cron/finalize                — Auto-finalize undisputed bets past dispute window (cron daily 01:00 UTC)
+POST /api/resolver/run/:id             — Run resolver on specific bet (admin only)
+GET  /api/resolver/evidence/:id        — Get resolution evidence for bet
 GET  /api/health                       — DB + RPC + resolver key check
 ```
+
+## Cron Jobs
+
+```
+GET /api/cron/resolve     — Daily 00:00 UTC — AI resolve bets past deadline (3 retries)
+GET /api/cron/finalize    — Daily 01:00 UTC — Auto-finalize undisputed bets past dispute window
+GET /api/cron/cleanup     — Daily 02:00 UTC — Purge expired rate limit entries
+GET /api/cron/vip-check   — Weekly Sun 03:00 UTC — Auto-promote VIP by volume
+```
+
+All crons accept both `Authorization: Bearer CRON_SECRET` and `x-admin-api-key` header.
 
 ## Build & Test
 
 ```bash
 npm run typecheck    # 0 errors
-npm test             # 162 tests (vitest)
-npm run build        # ~22 routes
+npm test             # 251 tests (vitest)
+npm run build        # ~26 routes
 npm run generate:idl # IDL from source (anchor build IDL is broken)
 
 # Anchor (requires Solana toolchain — see TOOLCHAIN.md)
@@ -119,7 +150,7 @@ anchor test --skip-build  # 21 on-chain tests
 # Deploy program to devnet
 solana program deploy target/deploy/wager_escrow.so --program-id target/deploy/wager_escrow-keypair.json --url devnet
 
-# Deploy app to Vercel
+# Deploy app to Vercel (auto-runs prisma db push + generate + build)
 vercel deploy --prod --yes
 ```
 
@@ -144,7 +175,7 @@ NEXT_PUBLIC_BUG_REPORT_URL
 - utils.ts: hashEvidence uses lazy require('crypto') — don't move to top-level import (breaks client components)
 - Binance API blocked from Vercel US IPs — CoinGecko used as fallback for price snapshots
 - Anchor 0.30.1 IDL generation broken — use npm run generate:idl
-- In-memory rate limiter resets on Vercel cold starts
+- dry_run on resolver/run endpoint disabled in production (NODE_ENV check)
 
 ## Rules
 
