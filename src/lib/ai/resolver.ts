@@ -287,22 +287,75 @@ export async function resolveWager(bet: BetForResolution): Promise<ResolveResult
   }
 
   const result = validation.data as ResolveResult;
+  const searchUrls = new Set(webResults.map((r) => r.url));
 
+  // --- Post-hoc validation (zero-cost, no extra API calls) ---
+  const flags: string[] = [];
+
+  // 1. Low confidence
   if (result.confidence < 0.8) {
-    result.needs_manual_review = true;
-    console.log(`[resolver] Low confidence (${result.confidence}) — flagged for manual review`);
+    flags.push(`low-confidence:${result.confidence}`);
   }
 
+  // 2. Conflicting evidence
   const yesCount = result.evidence.filter((e) => e.supports === "YES").length;
   const noCount = result.evidence.filter((e) => e.supports === "NO").length;
   if (yesCount > 0 && noCount > 0) {
-    result.needs_manual_review = true;
-    console.log(`[resolver] Conflicting evidence (${yesCount} YES, ${noCount} NO) — flagged for manual review`);
+    flags.push(`conflicting-evidence:${yesCount}Y/${noCount}N`);
   }
 
+  // 3. Missing source URL
   if (result.evidence.some((e) => !e.source_url || e.source_url.length === 0)) {
+    flags.push("empty-source-url");
+  }
+
+  // 4. Hallucinated URLs — AI cited a URL not in search results
+  const hallucinatedUrls = result.evidence.filter(
+    (e) => e.source_url && !searchUrls.has(e.source_url) && webResults.length > 0
+  );
+  if (hallucinatedUrls.length > 0) {
+    flags.push(`hallucinated-urls:${hallucinatedUrls.length}`);
+  }
+
+  // 5. Deadline not passed — AI should return UNKNOWN
+  const deadlinePassed = new Date(bet.deadlineUtc).getTime() <= Date.now();
+  if (!deadlinePassed && result.winner_side !== "UNKNOWN") {
+    flags.push("verdict-before-deadline");
+  }
+
+  // 6. Winner-evidence mismatch — AI says YES but majority evidence says NO (or vice versa)
+  if (result.winner_side !== "UNKNOWN" && result.evidence.length > 0) {
+    const supportingCount = result.evidence.filter((e) => e.supports === result.winner_side).length;
+    const opposingCount = result.evidence.filter(
+      (e) => e.supports !== "NEUTRAL" && e.supports !== result.winner_side
+    ).length;
+    if (opposingCount > supportingCount) {
+      flags.push(`winner-evidence-mismatch:${supportingCount}for/${opposingCount}against`);
+    }
+  }
+
+  // 7. High confidence with no evidence
+  if (result.confidence >= 0.8 && result.evidence.length === 0) {
+    flags.push("high-confidence-no-evidence");
+  }
+
+  // 8. Duplicate evidence URLs with conflicting supports
+  const urlSupports = new Map<string, Set<string>>();
+  for (const e of result.evidence) {
+    if (!e.source_url) continue;
+    if (!urlSupports.has(e.source_url)) urlSupports.set(e.source_url, new Set());
+    urlSupports.get(e.source_url)!.add(e.supports);
+  }
+  for (const [url, supports] of urlSupports) {
+    if (supports.size > 1) {
+      flags.push(`self-contradicting-url:${url.slice(0, 50)}`);
+    }
+  }
+
+  // Apply flags
+  if (flags.length > 0) {
     result.needs_manual_review = true;
-    console.log(`[resolver] Evidence missing source URL — flagged for manual review`);
+    console.log(`[resolver] Validation flags for ${bet.id}: ${flags.join(", ")}`);
   }
 
   // Adversarial verification: only for non-deterministic markets in the 0.8–0.93 band
