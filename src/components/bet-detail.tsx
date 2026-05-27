@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useWallet, useConnection } from "@solana/wallet-adapter-react";
 import dynamic from "next/dynamic";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -29,6 +29,7 @@ interface BetDetailData {
   deadlineUtc: string;
   makerSide: string;
   stakeLamports: string;
+  feeBps: number;
   status: string;
   makerFunded: boolean;
   maker: { pubkey: string };
@@ -56,6 +57,27 @@ interface BetDetailData {
   objectiveCriteria: string[];
 }
 
+function useCountdown(deadline: string | null): string | null {
+  const [timeLeft, setTimeLeft] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!deadline) return;
+    function tick() {
+      const ms = new Date(deadline!).getTime() - Date.now();
+      if (ms <= 0) { setTimeLeft("Expired"); return; }
+      const h = Math.floor(ms / 3600000);
+      const m = Math.floor((ms % 3600000) / 60000);
+      const s = Math.floor((ms % 60000) / 1000);
+      setTimeLeft(`${h}h ${m}m ${s}s`);
+    }
+    tick();
+    const id = setInterval(tick, 1000);
+    return () => clearInterval(id);
+  }, [deadline]);
+
+  return timeLeft;
+}
+
 export function BetDetail({ bet }: { bet: BetDetailData }) {
   const { publicKey, wallet, signTransaction } = useWallet();
   const { connection } = useConnection();
@@ -65,11 +87,19 @@ export function BetDetail({ bet }: { bet: BetDetailData }) {
   const [message, setMessage] = useState<string | null>(null);
   const [txSig, setTxSig] = useState<string | null>(null);
 
+  const disputeCountdown = useCountdown(bet.disputeDeadlineUtc);
+  const deadlineCountdown = useCountdown(bet.deadlineUtc);
+
   const blinkUrl = `${APP_URL}/api/actions/bet/${bet.id}`;
   const stakeSol = lamportsToSol(Number(bet.stakeLamports));
+  const feePct = bet.feeBps / 100;
+  const pot = stakeSol * 2;
+  const feeAmount = pot * (bet.feeBps / 10000);
   const connected = !!publicKey;
   const walletPubkey = publicKey?.toBase58() || "";
   const isMaker = connected && walletPubkey === bet.maker.pubkey;
+  const regularEvidence = bet.evidence.filter((e) => e.sourceName !== "adversarial-challenger");
+  const challengerEvidence = bet.evidence.filter((e) => e.sourceName === "adversarial-challenger");
 
   async function handleSync() {
     setSyncing(true);
@@ -255,6 +285,11 @@ export function BetDetail({ bet }: { bet: BetDetailData }) {
           <div className="grid grid-cols-2 gap-4 text-sm">
             <div>
               <span className="font-medium">Stake:</span> {stakeSol} SOL each
+              <span className="text-muted-foreground"> (pot: {pot} SOL)</span>
+            </div>
+            <div>
+              <span className="font-medium">Fee:</span> {feePct}%
+              <span className="text-muted-foreground"> ({feeAmount.toFixed(4)} SOL)</span>
             </div>
             <div>
               <span className="font-medium">Maker side:</span> {bet.makerSide}
@@ -262,6 +297,9 @@ export function BetDetail({ bet }: { bet: BetDetailData }) {
             <div>
               <span className="font-medium">Deadline:</span>{" "}
               {formatDeadline(bet.deadlineUtc)}
+              {deadlineCountdown && deadlineCountdown !== "Expired" && bet.status === "ACCEPTED" && (
+                <span className="text-muted-foreground"> ({deadlineCountdown})</span>
+              )}
             </div>
             <div>
               <span className="font-medium">Category:</span>{" "}
@@ -325,14 +363,19 @@ export function BetDetail({ bet }: { bet: BetDetailData }) {
 
           {bet.disputeDeadlineUtc && (
             <div className="text-sm space-y-1">
-              <div>
-                <span className="font-medium">Dispute Deadline:</span>{" "}
-                {formatDeadline(bet.disputeDeadlineUtc)}
+              <div className="flex items-center gap-2">
+                <span className="font-medium">Dispute Window:</span>
+                {disputeCountdown === "Expired" ? (
+                  <Badge variant="secondary">Closed</Badge>
+                ) : (
+                  <Badge variant="warning">{disputeCountdown}</Badge>
+                )}
               </div>
               <p className="text-xs text-muted-foreground">
-                Either party can dispute the proposed result within 24 hours.
-                If no dispute is filed, the payout finalizes automatically.
-                Winner receives 99% of the pot; 1% goes to the platform fee wallet.
+                {disputeCountdown === "Expired"
+                  ? `Dispute window closed. Payout will finalize automatically. Winner receives ${(pot - feeAmount).toFixed(4)} SOL (${feePct}% fee).`
+                  : `Either party can dispute within this window. After that, payout finalizes automatically. Winner receives ${(pot - feeAmount).toFixed(4)} SOL (${feePct}% fee).`
+                }
               </p>
             </div>
           )}
@@ -486,13 +529,13 @@ export function BetDetail({ bet }: { bet: BetDetailData }) {
         </Card>
       )}
 
-      {bet.evidence.length > 0 && (
+      {regularEvidence.length > 0 && (
         <Card>
           <CardHeader>
             <CardTitle className="text-base">Resolution Evidence</CardTitle>
           </CardHeader>
           <CardContent className="space-y-3">
-            {bet.evidence.map((ev) => (
+            {regularEvidence.map((ev) => (
               <div key={ev.id} className="border rounded-lg p-3 text-sm">
                 <div className="flex items-center justify-between mb-1">
                   <span className="font-medium">{ev.sourceName}</span>
@@ -512,7 +555,7 @@ export function BetDetail({ bet }: { bet: BetDetailData }) {
                   &quot;{ev.relevantExcerpt}&quot;
                 </p>
                 <p className="mt-1">{ev.explanation}</p>
-                {ev.sourceUrl && (
+                {ev.sourceUrl && !ev.sourceUrl.startsWith("model:") && (
                   <a
                     href={ev.sourceUrl}
                     target="_blank"
@@ -524,6 +567,41 @@ export function BetDetail({ bet }: { bet: BetDetailData }) {
                 )}
               </div>
             ))}
+          </CardContent>
+        </Card>
+      )}
+
+      {challengerEvidence.length > 0 && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Adversarial Verification</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            {challengerEvidence.map((ev) => {
+              let parsed: Record<string, unknown> = {};
+              try { parsed = JSON.parse(ev.relevantExcerpt); } catch {}
+              const confirmed = ev.supports === "YES";
+              return (
+                <div key={ev.id} className={`border rounded-lg p-3 text-sm ${confirmed ? "border-green-800/30" : "border-red-800/30"}`}>
+                  <div className="flex items-center gap-2 mb-1">
+                    <Badge variant={confirmed ? "success" : "destructive"}>
+                      {confirmed ? "Verdict Confirmed" : "Verdict Challenged"}
+                    </Badge>
+                    {parsed.confidence_before !== undefined && (
+                      <span className="text-xs text-muted-foreground">
+                        Confidence: {String(parsed.confidence_before)} &rarr; {String(parsed.confidence_after)}
+                      </span>
+                    )}
+                  </div>
+                  <p className="text-muted-foreground">{ev.explanation}</p>
+                  {Array.isArray(parsed.edge_cases) && parsed.edge_cases.length > 0 && (
+                    <p className="text-xs text-muted-foreground mt-1">
+                      Edge cases found: {parsed.edge_cases.join("; ")}
+                    </p>
+                  )}
+                </div>
+              );
+            })}
           </CardContent>
         </Card>
       )}
