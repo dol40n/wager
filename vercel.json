@@ -6,6 +6,10 @@
     {
       "path": "/api/cron/resolve",
       "schedule": "0 0 * * *"
+    },
+    {
+      "path": "/api/cron/finalize",
+      "schedule": "0 1 * * *"
     }
   ],
   "headers": [

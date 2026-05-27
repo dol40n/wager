@@ -24,17 +24,22 @@ export async function POST(
     if (!bet) {
       return NextResponse.json({ error: "Bet not found" }, { status: 404 });
     }
-    if (bet.status !== "ACCEPTED") {
-      return NextResponse.json(
-        { error: "Bet is not in ACCEPTED status" },
-        { status: 400 }
-      );
-    }
-    if (new Date(bet.deadlineUtc).getTime() > Date.now()) {
-      return NextResponse.json(
-        { error: "Deadline has not passed" },
-        { status: 400 }
-      );
+    const url = new URL(request.url);
+    const dryRun = url.searchParams.get("dry_run") === "true";
+
+    if (!dryRun) {
+      if (bet.status !== "ACCEPTED") {
+        return NextResponse.json(
+          { error: "Bet is not in ACCEPTED status" },
+          { status: 400 }
+        );
+      }
+      if (new Date(bet.deadlineUtc).getTime() > Date.now()) {
+        return NextResponse.json(
+          { error: "Deadline has not passed" },
+          { status: 400 }
+        );
+      }
     }
 
     const resolution = await resolveWager({
@@ -52,6 +57,10 @@ export async function POST(
       snapshotPrice: bet.snapshotPrice,
       snapshotTimeUtc: bet.snapshotTimeUtc?.toISOString(),
     });
+
+    if (dryRun) {
+      return NextResponse.json({ dry_run: true, ...resolution });
+    }
 
     for (const ev of resolution.evidence) {
       await prisma.resolutionEvidence.create({

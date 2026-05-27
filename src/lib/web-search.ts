@@ -20,6 +20,7 @@ export async function searchWeb(query: string, maxResults = 5): Promise<SearchRe
         api_key: apiKey,
         query,
         max_results: maxResults,
+        search_depth: "advanced",
         include_answer: false,
         include_raw_content: false,
       }),
@@ -41,4 +42,21 @@ export async function searchWeb(query: string, maxResults = 5): Promise<SearchRe
     console.error("[search] Web search failed:", err);
     return [];
   }
+}
+
+export async function multiSearch(queries: string[], maxResultsEach = 3): Promise<SearchResult[]> {
+  const results = await Promise.all(
+    queries.map((q) => searchWeb(q, maxResultsEach))
+  );
+  const seen = new Set<string>();
+  const deduped: SearchResult[] = [];
+  for (const batch of results) {
+    for (const r of batch) {
+      if (!seen.has(r.url)) {
+        seen.add(r.url);
+        deduped.push(r);
+      }
+    }
+  }
+  return deduped;
 }

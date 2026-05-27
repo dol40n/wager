@@ -43,9 +43,22 @@ admin_finalize_disputed, refund_if_expired_or_unresolved
 
 ## Resolution Pipeline
 
-1. Crypto + price snapshot → Binance/CoinGecko price comparison (99% confidence, no AI)
-2. Any topic + TAVILY_API_KEY → Tavily web search → Claude AI analysis
-3. Fallback → Claude from training data (low confidence → manual review)
+```
+deterministic (crypto/sports API) → direct finalize (0.99 confidence)
+non-deterministic → AI resolve (Sonnet) → confidence check:
+  < 0.8       → manual review
+  0.8–0.93    → adversarial challenge (Haiku) → disagrees → manual review
+                                               → agrees   → proceed
+  > 0.93      → proceed (skip challenger)
+after dispute window → auto-finalize cron
+```
+
+- Crypto: target-price ("above $110k") vs directional ("higher than at creation")
+- Web search: multi-query Tavily (advanced depth), 600 chars/result
+- Challenger uses different model family (Haiku vs Sonnet) to reduce correlated failures
+- Challenger sees raw evidence + market wording, not just resolver summary
+- Checks: wording ambiguity, exploitable edge cases, evidence gaps, timeline attacks
+- Challenge results logged to ResolutionEvidence (sourceName: "adversarial-challenger")
 
 Price snapshots are saved at bet creation (CoinGecko, Binance as primary with CoinGecko fallback since Binance blocks US datacenter IPs).
 
@@ -85,7 +98,8 @@ GET  /api/actions/bet/:id              — Blink GET (redirects browsers to /bet
 POST /api/actions/bet/:id/accept       — Blink POST accept TX
 POST /api/admin/bets/:id/finalize-onchain — Full on-chain settlement
 POST /api/admin/bets/:id/refund-onchain   — DB refund (on-chain needs 7-day timeout)
-GET  /api/cron/resolve                 — Batch resolver (Vercel cron daily, or manual with admin key)
+GET  /api/cron/resolve                 — Batch resolver (Vercel cron daily 00:00 UTC, or manual with admin key)
+GET  /api/cron/finalize                — Auto-finalize undisputed bets past dispute window (cron daily 01:00 UTC)
 GET  /api/health                       — DB + RPC + resolver key check
 ```
 
