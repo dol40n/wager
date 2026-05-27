@@ -32,7 +32,7 @@ export interface SettleResult {
 
 const STATUS_NAMES = ["Open", "Accepted", "ResultProposed", "Disputed", "Finalized", "Cancelled", "Refunded"];
 
-function readOnChainStatus(data: Buffer): number {
+export function readOnChainStatus(data: Buffer): number {
   let offset = 8 + 32 + 32; // discriminator + bet_id_hash + maker
   const takerFlag = data[offset]; offset += takerFlag === 1 ? 33 : 1;
   const allowedFlag = data[offset]; offset += allowedFlag === 1 ? 33 : 1;
@@ -41,6 +41,12 @@ function readOnChainStatus(data: Buffer): number {
   offset += 8; // deadline_ts
   offset += 8; // dispute_deadline_ts
   return data[offset];
+}
+
+async function refreshStatus(connection: ReturnType<typeof getConnection>, betPDA: PublicKey): Promise<number> {
+  const info = await connection.getAccountInfo(betPDA);
+  if (!info) throw new Error("Bet PDA disappeared during settlement");
+  return readOnChainStatus(info.data);
 }
 
 export async function settleOnChain(input: SettleInput, feeWalletKey: PublicKey): Promise<SettleResult> {
@@ -66,12 +72,11 @@ export async function settleOnChain(input: SettleInput, feeWalletKey: PublicKey)
     return { success: false, txSignatures, vaultBefore, vaultAfter: vaultBefore, winnerReceived: 0, feeReceived: 0, error: "Bet PDA not found on-chain" };
   }
 
-  const statusByte = readOnChainStatus(accountInfo.data);
-  const onChainStatus = STATUS_NAMES[statusByte] || "Unknown";
+  let statusByte = readOnChainStatus(accountInfo.data);
+  console.log(`[settle] Bet ${input.betId}: on-chain=${STATUS_NAMES[statusByte] || "Unknown"}, vault=${vaultBefore}`);
 
-  console.log(`[settle] Bet ${input.betId}: on-chain=${onChainStatus}, vault=${vaultBefore}`);
-
-  if (statusByte === 1) { // Accepted → propose → dispute → admin_finalize
+  // Step 1: Accepted → propose_result → becomes ResultProposed
+  if (statusByte === 1) {
     const evidenceHash = input.evidenceHash
       ? Buffer.from(input.evidenceHash, "hex")
       : hashEvidence("[]");
@@ -80,31 +85,34 @@ export async function settleOnChain(input: SettleInput, feeWalletKey: PublicKey)
       resolverAuthority: resolverKeypair.publicKey, betPDA, proposedWinner: winnerKey, evidenceHash,
     });
     txSignatures.propose_result = await signAndSendTx(proposeTx, [resolverKeypair]);
+    statusByte = await refreshStatus(connection, betPDA);
+    console.log(`[settle] After propose: status=${STATUS_NAMES[statusByte]}`);
+  }
 
+  // Step 2: ResultProposed → dispute_result → becomes Disputed
+  if (statusByte === 2) {
     const disputeTx = await buildDisputeTx({ disputer: resolverKeypair.publicKey, betPDA });
     txSignatures.dispute_result = await signAndSendTx(disputeTx, [resolverKeypair]);
+    statusByte = await refreshStatus(connection, betPDA);
+    console.log(`[settle] After dispute: status=${STATUS_NAMES[statusByte]}`);
+  }
 
+  // Step 3: Disputed → admin_finalize_disputed → becomes Finalized
+  if (statusByte === 3) {
     const adminTx = await buildAdminFinalizeTx({
       resolverAuthority: resolverKeypair.publicKey, betPDA, vaultPDA, winner: winnerKey,
     });
     txSignatures.admin_finalize = await signAndSendTx(adminTx, [resolverKeypair]);
-  } else if (statusByte === 2) { // ResultProposed → dispute → admin_finalize
-    const disputeTx = await buildDisputeTx({ disputer: resolverKeypair.publicKey, betPDA });
-    txSignatures.dispute_result = await signAndSendTx(disputeTx, [resolverKeypair]);
+  }
 
-    const adminTx = await buildAdminFinalizeTx({
-      resolverAuthority: resolverKeypair.publicKey, betPDA, vaultPDA, winner: winnerKey,
-    });
-    txSignatures.admin_finalize = await signAndSendTx(adminTx, [resolverKeypair]);
-  } else if (statusByte === 3) { // Disputed → admin_finalize
-    const adminTx = await buildAdminFinalizeTx({
-      resolverAuthority: resolverKeypair.publicKey, betPDA, vaultPDA, winner: winnerKey,
-    });
-    txSignatures.admin_finalize = await signAndSendTx(adminTx, [resolverKeypair]);
-  } else if (statusByte === 4) {
+  // Already finalized (idempotent)
+  else if (statusByte === 4) {
     return { success: true, txSignatures, vaultBefore, vaultAfter: 0, winnerReceived: 0, feeReceived: 0, error: "Already finalized" };
-  } else {
-    return { success: false, txSignatures, vaultBefore, vaultAfter: vaultBefore, winnerReceived: 0, feeReceived: 0, error: `Unexpected on-chain status: ${onChainStatus}` };
+  }
+
+  // Unexpected status after stepping through
+  else if (statusByte !== 3) {
+    return { success: false, txSignatures, vaultBefore, vaultAfter: vaultBefore, winnerReceived: 0, feeReceived: 0, error: `Unexpected on-chain status: ${STATUS_NAMES[statusByte] || "Unknown"} (byte=${statusByte})` };
   }
 
   const vaultAfter = await connection.getBalance(vaultPDA);
