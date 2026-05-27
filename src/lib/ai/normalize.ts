@@ -113,27 +113,50 @@ export async function normalizeWagerCondition(
     ? `Wager: "${text}"\nSuggested deadline: ${suggestedDeadline}`
     : `Wager: "${text}"`;
 
+  const normalizeTool = {
+    name: "submit_normalized_wager" as const,
+    description: "Submit the normalized wager condition",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        original_text: { type: "string" as const },
+        normalized_question: { type: "string" as const },
+        category: { type: "string" as const, enum: ["crypto", "sports", "social_media", "news", "custom"] },
+        yes_definition: { type: "string" as const },
+        no_definition: { type: "string" as const },
+        deadline_utc: { type: "string" as const },
+        resolution_sources: { type: "array" as const, items: { type: "string" as const } },
+        resolution_method: { type: "string" as const, enum: ["api", "web_research", "ai_evidence", "manual_review"] },
+        objective_criteria: { type: "array" as const, items: { type: "string" as const } },
+        ambiguity_score: { type: "number" as const },
+        ambiguity_notes: { type: "array" as const, items: { type: "string" as const } },
+        should_reject: { type: "boolean" as const },
+        rejection_reason: { type: ["string", "null"] as const },
+      },
+      required: [
+        "original_text", "normalized_question", "category", "yes_definition",
+        "no_definition", "deadline_utc", "resolution_sources", "resolution_method",
+        "objective_criteria", "ambiguity_score", "ambiguity_notes", "should_reject",
+        "rejection_reason",
+      ],
+    },
+  };
+
   const response = await client.messages.create({
     model: "claude-sonnet-4-20250514",
     max_tokens: 1024,
     system: buildSystemPrompt(),
     messages: [{ role: "user", content: userMessage }],
+    tools: [normalizeTool],
+    tool_choice: { type: "tool", name: "submit_normalized_wager" },
   });
 
-  const content = response.content[0];
-  if (content.type !== "text") {
-    throw new Error("Unexpected response type from AI");
+  const toolBlock = response.content.find((c) => c.type === "tool_use");
+  if (!toolBlock || toolBlock.type !== "tool_use") {
+    throw new Error("AI did not return structured tool output");
   }
 
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(content.text);
-  } catch {
-    console.error("[normalize] AI returned invalid JSON");
-    throw new Error("AI returned invalid JSON");
-  }
-
-  const validation = normalizeResultSchema.safeParse(parsed);
+  const validation = normalizeResultSchema.safeParse(toolBlock.input);
   if (!validation.success) {
     console.error("[normalize] Schema validation failed:", validation.error.issues);
     throw new Error(

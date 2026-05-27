@@ -24,6 +24,13 @@ export async function POST(request: Request) {
     const body = await request.json();
     const parsed = createBetSchema.parse(body);
 
+    if (await isRateLimited(`create:wallet:${parsed.maker_pubkey}`, RATE_LIMIT_MAX_CREATES)) {
+      return NextResponse.json(
+        { error: "Rate limit exceeded for this wallet. Try again in 1 minute." },
+        { status: 429 }
+      );
+    }
+
     let wallet = await prisma.userWallet.findUnique({
       where: { pubkey: parsed.maker_pubkey },
     });

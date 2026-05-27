@@ -247,32 +247,68 @@ export async function resolveWager(bet: BetForResolution): Promise<ResolveResult
     category: bet.category,
   }, null, 2);
 
-  const userMessage = `BET DATA:\n${betData}\n${searchContext}\n\nRespond ONLY with valid JSON matching the schema. No markdown.`;
+  const userMessage = `BET DATA:\n${betData}\n${searchContext}`;
 
   console.log(`[resolver] Starting AI resolution for bet ${bet.id}`);
+
+  const resolveTool = {
+    name: "submit_resolution" as const,
+    description: "Submit the wager resolution verdict with evidence",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        winner_side: { type: "string" as const, enum: ["YES", "NO", "UNKNOWN"] },
+        confidence: { type: "number" as const },
+        needs_manual_review: { type: "boolean" as const },
+        evidence: {
+          type: "array" as const,
+          items: {
+            type: "object" as const,
+            properties: {
+              source_url: { type: "string" as const },
+              source_name: { type: "string" as const },
+              published_or_observed_at: { type: ["string", "null"] as const },
+              relevant_excerpt: { type: "string" as const },
+              supports: { type: "string" as const, enum: ["YES", "NO", "NEUTRAL"] },
+              explanation: { type: "string" as const },
+            },
+            required: ["source_url", "source_name", "relevant_excerpt", "supports", "explanation"],
+          },
+        },
+        reasoning_summary: { type: "string" as const },
+        failure_reason: { type: ["string", "null"] as const },
+      },
+      required: ["winner_side", "confidence", "needs_manual_review", "evidence", "reasoning_summary"],
+    },
+  };
 
   const response = await client.messages.create({
     model: "claude-sonnet-4-20250514",
     max_tokens: 2048,
     system: buildSystemPrompt(),
     messages: [{ role: "user", content: userMessage }],
+    tools: [resolveTool],
+    tool_choice: { type: "tool", name: "submit_resolution" },
   });
 
-  const content = response.content[0];
-  if (content.type !== "text") {
-    console.error(`[resolver] Unexpected response type: ${content.type}`);
-    throw new Error("Unexpected response type from AI");
+  const toolBlock = response.content.find((c) => c.type === "tool_use");
+  if (!toolBlock || toolBlock.type !== "tool_use") {
+    console.error(`[resolver] AI did not return structured tool output`);
+    return {
+      bet_id: bet.id,
+      winner_side: "UNKNOWN",
+      confidence: 0,
+      needs_manual_review: true,
+      evidence: [],
+      reasoning_summary: "AI did not return structured output",
+      failure_reason: "No tool_use block in response",
+    };
   }
 
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(content.text);
-  } catch {
-    console.error(`[resolver] Failed to parse AI response as JSON`);
-    throw new Error("AI returned invalid JSON");
-  }
-
-  const validation = resolveResultSchema.safeParse(parsed);
+  const validation = resolveResultSchema.safeParse({
+    bet_id: bet.id,
+    ...toolBlock.input as Record<string, unknown>,
+  });
   if (!validation.success) {
     console.error(`[resolver] Schema validation failed:`, validation.error.issues);
     return {
