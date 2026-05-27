@@ -116,60 +116,23 @@ export async function POST(
       txSignatures.propose_result = proposeSig;
       console.log(`[finalize-onchain] propose_result TX: ${proposeSig}`);
 
-      // Now dispute it so we can admin_finalize
-      console.log(`[finalize-onchain] Disputing on-chain (to enable admin_finalize)...`);
+      // Auto-dispute with resolver authority (program allows resolver to dispute)
+      console.log(`[finalize-onchain] Auto-disputing with resolver authority...`);
       const disputeTx = await buildDisputeTx({
-        disputer: new PublicKey(bet.maker.pubkey),
+        disputer: resolverKeypair.publicKey,
         betPDA,
       });
-      // Dispute must be signed by maker or taker — resolver can't dispute.
-      // Instead, we'll skip dispute and wait... but admin_finalize requires DISPUTED.
-      // Alternative: use the resolver to directly admin-finalize after propose.
-      // Actually, admin_finalize_disputed requires status==DISPUTED.
-      // The on-chain program has finalize_result_after_dispute_window for ResultProposed,
-      // but that requires 24h wait.
-      // For admin flow: propose → dispute (by resolver as maker/taker proxy won't work)
-      // We need a different approach: use the on-chain "dispute" signed by either maker or taker.
-      // Since we don't have their keys, we'll need to rely on
-      // finalize_result_after_dispute_window once 24h passes.
-      //
-      // WORKAROUND for devnet testing: The resolver authority can be used if we
-      // designed it differently, but our program requires maker or taker to dispute.
-      //
-      // Real solution for this specific bet: Since we just proposed with the maker as winner,
-      // and the taker would want to dispute, but we don't have taker's key locally.
-      // The hosted backend doesn't have maker/taker keys — only the resolver key.
-      //
-      // For this specific fix: since the bet was already DB-finalized as YES (maker wins),
-      // and we just proposed maker as winner on-chain, we can wait for the 24h dispute window.
-      // But for immediate testing, let's try finalize_result_after_dispute_window
-      // (it will fail with DisputeWindowActive since the window just started).
-      //
-      // CORRECT approach: Since this is an admin-resolved bet, the admin decision should
-      // bypass the dispute window. Our admin_finalize_disputed instruction handles this
-      // but requires DISPUTED status. We need to add propose→admin_finalize flow.
-      //
-      // For NOW: the propose_result succeeded, making the on-chain status ResultProposed.
-      // We can't call admin_finalize_disputed yet. Mark DB as RESULT_PROPOSED and note
-      // that it needs dispute window to expire OR a dispute from maker/taker.
+      const disputeSig = await signAndSendTx(disputeTx, [resolverKeypair]);
+      txSignatures.dispute_result = disputeSig;
+      console.log(`[finalize-onchain] dispute_result TX: ${disputeSig}`);
 
-      await prisma.bet.update({
-        where: { id },
-        data: { status: "RESULT_PROPOSED", proposedWinner: parsed.winner_side },
+      // Now admin_finalize_disputed (on-chain status is now DISPUTED)
+      const adminTx = await buildAdminFinalizeTx({
+        resolverAuthority: resolverKeypair.publicKey,
+        betPDA, vaultPDA, winner: winnerKey,
       });
-
-      await prisma.transaction.create({
-        data: { betId: id, txHash: proposeSig, type: "PROPOSE_RESULT", status: "CONFIRMED" },
-      });
-
-      return NextResponse.json({
-        bet_id: id,
-        status: "RESULT_PROPOSED",
-        on_chain_status: "ResultProposed",
-        tx_signatures: txSignatures,
-        message: "Result proposed on-chain. Bet enters 24h dispute window. Either party can dispute, or it auto-finalizes after 24h. Use finalize-onchain again after dispute or window expiry.",
-        explorer: `https://explorer.solana.com/tx/${proposeSig}?cluster=devnet`,
-      });
+      const adminSig = await signAndSendTx(adminTx, [resolverKeypair]);
+      txSignatures.admin_finalize = adminSig;
     }
 
     // If on-chain is DISPUTED, do admin_finalize_disputed
@@ -181,15 +144,22 @@ export async function POST(
       const adminSig = await signAndSendTx(adminTx, [resolverKeypair]);
       txSignatures.admin_finalize = adminSig;
     }
-    // If ResultProposed (statusByte === 2), we can't auto-finalize (need 24h window).
-    // Return informational response.
+    // If ResultProposed, auto-dispute with resolver then admin_finalize
     else if (statusByte === 2) {
-      return NextResponse.json({
-        bet_id: id,
-        status: "RESULT_PROPOSED",
-        message: "On-chain status is ResultProposed. Wait for 24h dispute window to expire, or have maker/taker dispute first.",
-        vault_balance_sol: lamportsToSol(vaultBalanceBefore),
+      console.log(`[finalize-onchain] On-chain ResultProposed — auto-disputing with resolver`);
+      const disputeTx = await buildDisputeTx({
+        disputer: resolverKeypair.publicKey,
+        betPDA,
       });
+      const disputeSig = await signAndSendTx(disputeTx, [resolverKeypair]);
+      txSignatures.dispute_result = disputeSig;
+
+      const adminTx = await buildAdminFinalizeTx({
+        resolverAuthority: resolverKeypair.publicKey,
+        betPDA, vaultPDA, winner: winnerKey,
+      });
+      const adminSig = await signAndSendTx(adminTx, [resolverKeypair]);
+      txSignatures.admin_finalize = adminSig;
     } else if (statusByte === 4) { // Already finalized
       return NextResponse.json({
         bet_id: id,

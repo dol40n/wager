@@ -17,8 +17,11 @@ pub fn handler(ctx: Context<DisputeResult>) -> Result<()> {
     let bet = &mut ctx.accounts.bet;
     let disputer = ctx.accounts.disputer.key();
 
+    // Maker, taker, or resolver authority can dispute
     require!(
-        disputer == bet.maker || Some(disputer) == bet.taker,
+        disputer == bet.maker
+            || Some(disputer) == bet.taker
+            || disputer == bet.resolver_authority,
         WagerError::Unauthorized
     );
 
