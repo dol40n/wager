@@ -9,7 +9,18 @@ import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { AlertTriangle, Loader2 } from "lucide-react";
+import { calculateFeeBps } from "@/lib/fees";
 import type { NormalizeResult } from "@/types";
+
+function useFeePreview(stakeSol: string, category: string | null) {
+  const lamports = Math.round(parseFloat(stakeSol || "0") * 1_000_000_000);
+  if (!lamports || lamports <= 0) return null;
+  const cat = category || "custom";
+  const result = calculateFeeBps(cat, lamports, null);
+  const pot = (lamports / 1_000_000_000) * 2;
+  const feeAmount = pot * (result.feeBps / 10000);
+  return { ...result, pot, feeAmount };
+}
 
 export function CreateBetForm() {
   const router = useRouter();
@@ -24,6 +35,7 @@ export function CreateBetForm() {
   const [makerPubkey, setMakerPubkey] = useState("");
 
   const [normalized, setNormalized] = useState<NormalizeResult | null>(null);
+  const feePreview = useFeePreview(stake, normalized?.category ?? null);
 
   async function handleNormalize() {
     setLoading(true);
@@ -106,7 +118,7 @@ export function CreateBetForm() {
           <a href="https://faucet.solana.com" target="_blank" rel="noopener noreferrer" className="underline">
             faucet.solana.com
           </a>.
-          Max stake: 10 SOL. 1% platform fee. 24-hour dispute window before payout.
+          Max stake: 10 SOL. Platform fee: 0.75%&ndash;3% based on stake size. 24-hour dispute window before payout.
         </AlertDescription>
       </Alert>
 
@@ -147,6 +159,11 @@ export function CreateBetForm() {
                   value={stake}
                   onChange={(e) => setStake(e.target.value)}
                 />
+                {feePreview && (
+                  <p className="text-xs text-muted-foreground">
+                    Fee: {feePreview.feePercent}% ({feePreview.feeAmount.toFixed(4)} SOL) &middot; Pot: {feePreview.pot} SOL &middot; Payout: {(feePreview.pot - feePreview.feeAmount).toFixed(4)} SOL
+                  </p>
+                )}
               </div>
             </div>
             <div className="space-y-2">
@@ -292,6 +309,13 @@ export function CreateBetForm() {
                 <span className="font-medium">Resolution Source:</span>{" "}
                 {normalized.resolution_sources.join(", ")}
               </div>
+              {feePreview && (
+                <div className="p-2 bg-muted rounded">
+                  <span className="font-medium">Stake:</span> {stake} SOL each &middot;{" "}
+                  <span className="font-medium">Fee:</span> {feePreview.feePercent}% ({feePreview.feeAmount.toFixed(4)} SOL) &middot;{" "}
+                  <span className="font-medium">Winner payout:</span> {(feePreview.pot - feePreview.feeAmount).toFixed(4)} SOL
+                </div>
+              )}
             </div>
 
             <div className="flex gap-2">
