@@ -82,26 +82,61 @@ async function resolveCryptoPriceComparison(
   try {
     const { fetchBinancePrice } = await import("@/lib/price-snapshot");
     const current = await fetchBinancePrice(bet.snapshotSymbol);
-    const startPrice = bet.snapshotPrice;
     const endPrice = current.snapshot_price;
-    const priceUp = endPrice > startPrice;
-    const priceSame = endPrice === startPrice;
 
-    const yesMeansUp =
-      bet.yesDefinition.toLowerCase().includes("higher") ||
-      bet.yesDefinition.toLowerCase().includes("выше") ||
-      bet.yesDefinition.toLowerCase().includes("strictly higher");
+    // Extract explicit dollar target from yes_definition (e.g. "above $110,000")
+    const targetMatch = bet.yesDefinition.match(/\$[\s]*([\d,]+(?:\.\d+)?)/);
+    const targetPrice = targetMatch
+      ? parseFloat(targetMatch[1].replace(/,/g, ""))
+      : null;
+
+    const startPrice = bet.snapshotPrice;
+    const isTargetPriceBet = targetPrice !== null && targetPrice !== startPrice;
+
+    const yesDef = bet.yesDefinition.toLowerCase();
+    const yesAbove =
+      yesDef.includes("above") ||
+      yesDef.includes("higher") ||
+      yesDef.includes("выше") ||
+      yesDef.includes("больше");
+    const yesBelow =
+      yesDef.includes("below") ||
+      yesDef.includes("lower") ||
+      yesDef.includes("ниже") ||
+      yesDef.includes("меньше");
 
     let winnerSide: "YES" | "NO";
-    if (yesMeansUp) {
-      winnerSide = priceUp ? "YES" : "NO";
-    } else {
-      winnerSide = priceUp ? "NO" : "YES";
-    }
+    let comparisonPrice: number;
+    let comparisonLabel: string;
 
-    // Exact same price → NO wins (not strictly higher)
-    if (priceSame) {
-      winnerSide = yesMeansUp ? "NO" : "YES";
+    if (isTargetPriceBet) {
+      // Fixed target: "BTC above $110k" — compare current vs target
+      comparisonPrice = targetPrice;
+      comparisonLabel = `target $${targetPrice.toLocaleString()}`;
+      if (yesAbove) {
+        winnerSide = endPrice > comparisonPrice ? "YES" : "NO";
+      } else if (yesBelow) {
+        winnerSide = endPrice < comparisonPrice ? "YES" : "NO";
+      } else {
+        winnerSide = endPrice > comparisonPrice ? "YES" : "NO";
+      }
+      if (endPrice === comparisonPrice) {
+        winnerSide = "NO";
+      }
+    } else {
+      // Directional: "BTC higher than creation price" — compare current vs snapshot
+      comparisonPrice = startPrice;
+      comparisonLabel = `snapshot $${startPrice.toFixed(2)}`;
+      const priceUp = endPrice > startPrice;
+      const priceSame = endPrice === startPrice;
+      if (yesAbove || (!yesBelow && !yesAbove)) {
+        winnerSide = priceUp ? "YES" : "NO";
+      } else {
+        winnerSide = priceUp ? "NO" : "YES";
+      }
+      if (priceSame) {
+        winnerSide = yesAbove || (!yesBelow && !yesAbove) ? "NO" : "YES";
+      }
     }
 
     const startTs = new Date(bet.snapshotTimeUtc!).getTime();
@@ -114,22 +149,29 @@ async function resolveCryptoPriceComparison(
         source_url: startKlineUrl,
         source_name: `${current.source} — historical 1m candle at creation`,
         published_or_observed_at: bet.snapshotTimeUtc,
-        relevant_excerpt: `${bet.snapshotSymbol} = $${startPrice.toFixed(2)} at ${bet.snapshotTimeUtc} (stored at wager creation, verifiable via kline startTime=${startTs})`,
+        relevant_excerpt: `${bet.snapshotSymbol} = $${startPrice.toFixed(2)} at ${bet.snapshotTimeUtc} (stored at wager creation)`,
         supports: "NEUTRAL",
-        explanation: `Snapshot price recorded by server at wager creation. Click URL to verify the 1-minute candle.`,
+        explanation: `Snapshot price recorded by server at wager creation.`,
       },
       {
         source_url: endKlineUrl,
         source_name: `${current.source} — historical 1m candle at resolution`,
         published_or_observed_at: current.snapshot_time_utc,
-        relevant_excerpt: `${bet.snapshotSymbol} = $${endPrice.toFixed(2)} at ${current.snapshot_time_utc} (fetched at resolution, verifiable via kline startTime=${endTs})`,
+        relevant_excerpt: `${bet.snapshotSymbol} = $${endPrice.toFixed(2)} at ${current.snapshot_time_utc} (fetched at resolution)`,
         supports: winnerSide === "YES" ? "YES" : "NO",
-        explanation: `Price ${priceUp ? "increased" : priceSame ? "unchanged" : "decreased"}: $${startPrice.toFixed(2)} → $${endPrice.toFixed(2)} (${((endPrice - startPrice) / startPrice * 100).toFixed(2)}%). Click URL to verify.`,
+        explanation: isTargetPriceBet
+          ? `Current $${endPrice.toFixed(2)} vs ${comparisonLabel}. ${winnerSide} wins.`
+          : `Price $${startPrice.toFixed(2)} → $${endPrice.toFixed(2)} (${((endPrice - startPrice) / startPrice * 100).toFixed(2)}%). ${winnerSide} wins.`,
       },
     ];
 
+    const reasoning = isTargetPriceBet
+      ? `${bet.snapshotSymbol} at $${endPrice.toFixed(2)} vs ${comparisonLabel}. ${winnerSide} wins.`
+      : `${bet.snapshotSymbol} price moved from $${startPrice.toFixed(2)} to $${endPrice.toFixed(2)} (${((endPrice - startPrice) / startPrice * 100).toFixed(2)}%). ${winnerSide} wins.`;
+
     console.log(
-      `[resolver] Binance result: $${startPrice.toFixed(2)} → $${endPrice.toFixed(2)}, winner=${winnerSide}`
+      `[resolver] Crypto result: ${isTargetPriceBet ? "target" : "directional"}, ` +
+      `current=$${endPrice.toFixed(2)} vs ${comparisonLabel}, winner=${winnerSide}`
     );
 
     return {
@@ -138,7 +180,7 @@ async function resolveCryptoPriceComparison(
       confidence: 0.99,
       needs_manual_review: false,
       evidence,
-      reasoning_summary: `${bet.snapshotSymbol} price moved from $${startPrice.toFixed(2)} to $${endPrice.toFixed(2)} (${((endPrice - startPrice) / startPrice * 100).toFixed(2)}%). ${winnerSide} wins.`,
+      reasoning_summary: reasoning,
       failure_reason: null,
     };
   } catch (err) {

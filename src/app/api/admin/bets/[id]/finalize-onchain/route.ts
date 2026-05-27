@@ -133,10 +133,7 @@ export async function POST(
       });
       const adminSig = await signAndSendTx(adminTx, [resolverKeypair]);
       txSignatures.admin_finalize = adminSig;
-    }
-
-    // If on-chain is DISPUTED, do admin_finalize_disputed
-    if (statusByte === 3) { // Disputed
+    } else if (statusByte === 3) { // Disputed
       const adminTx = await buildAdminFinalizeTx({
         resolverAuthority: resolverKeypair.publicKey,
         betPDA, vaultPDA, winner: winnerKey,
