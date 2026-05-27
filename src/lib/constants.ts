@@ -33,6 +33,10 @@ export const RATE_LIMIT_WINDOW_MS = 60_000; // 1 minute
 export const RATE_LIMIT_MAX_CREATES = 5;
 export const RATE_LIMIT_MAX_NORMALIZES = 10;
 
+// VIP auto-promotion thresholds (either condition qualifies)
+export const VIP_MIN_FINALIZED_BETS = 10;
+export const VIP_MIN_VOLUME_SOL = 50;
+
 export const REJECTED_TOPICS = [
   "assassin",
   "murder",
