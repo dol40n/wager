@@ -104,22 +104,27 @@ async function resolveCryptoPriceComparison(
       winnerSide = yesMeansUp ? "NO" : "YES";
     }
 
+    const startTs = new Date(bet.snapshotTimeUtc!).getTime();
+    const endTs = new Date(current.snapshot_time_utc).getTime();
+    const startKlineUrl = `https://api.binance.com/api/v3/klines?symbol=${bet.snapshotSymbol}&interval=1m&startTime=${startTs}&limit=1`;
+    const endKlineUrl = `https://api.binance.com/api/v3/klines?symbol=${bet.snapshotSymbol}&interval=1m&startTime=${endTs}&limit=1`;
+
     const evidence: EvidenceItem[] = [
       {
-        source_url: `https://api.binance.com/api/v3/ticker/price?symbol=${bet.snapshotSymbol}`,
-        source_name: "Binance API (start)",
+        source_url: startKlineUrl,
+        source_name: `${current.source} — historical 1m candle at creation`,
         published_or_observed_at: bet.snapshotTimeUtc,
-        relevant_excerpt: `${bet.snapshotSymbol} = $${startPrice.toFixed(2)} at wager creation`,
+        relevant_excerpt: `${bet.snapshotSymbol} = $${startPrice.toFixed(2)} at ${bet.snapshotTimeUtc} (stored at wager creation, verifiable via kline startTime=${startTs})`,
         supports: "NEUTRAL",
-        explanation: `Reference price at wager creation time`,
+        explanation: `Snapshot price recorded by server at wager creation. Click URL to verify the 1-minute candle.`,
       },
       {
-        source_url: `https://api.binance.com/api/v3/ticker/price?symbol=${bet.snapshotSymbol}`,
-        source_name: "Binance API (end)",
+        source_url: endKlineUrl,
+        source_name: `${current.source} — historical 1m candle at resolution`,
         published_or_observed_at: current.snapshot_time_utc,
-        relevant_excerpt: `${bet.snapshotSymbol} = $${endPrice.toFixed(2)} at resolution`,
+        relevant_excerpt: `${bet.snapshotSymbol} = $${endPrice.toFixed(2)} at ${current.snapshot_time_utc} (fetched at resolution, verifiable via kline startTime=${endTs})`,
         supports: winnerSide === "YES" ? "YES" : "NO",
-        explanation: `Price ${priceUp ? "increased" : priceSame ? "unchanged" : "decreased"}: $${startPrice.toFixed(2)} → $${endPrice.toFixed(2)} (${((endPrice - startPrice) / startPrice * 100).toFixed(2)}%)`,
+        explanation: `Price ${priceUp ? "increased" : priceSame ? "unchanged" : "decreased"}: $${startPrice.toFixed(2)} → $${endPrice.toFixed(2)} (${((endPrice - startPrice) / startPrice * 100).toFixed(2)}%). Click URL to verify.`,
       },
     ];
 
