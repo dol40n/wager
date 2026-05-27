@@ -122,6 +122,13 @@ model Transaction {
   createdAt DateTime @default(now())
 }
 
+model VipWallet {
+  id        String   @id @default(cuid())
+  pubkey    String   @unique
+  label     String?
+  createdAt DateTime @default(now())
+}
+
 model RateLimitEntry {
   id        String   @id @default(cuid())
   key       String

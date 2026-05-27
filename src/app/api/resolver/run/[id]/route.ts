@@ -25,7 +25,7 @@ export async function POST(
       return NextResponse.json({ error: "Bet not found" }, { status: 404 });
     }
     const url = new URL(request.url);
-    const dryRun = url.searchParams.get("dry_run") === "true";
+    const dryRun = url.searchParams.get("dry_run") === "true" && process.env.NODE_ENV !== "production";
 
     if (!dryRun) {
       if (bet.status !== "ACCEPTED") {

@@ -158,3 +158,30 @@ describe("calculateFeeBps — boundary cases", () => {
     expect(r.stakeTooLow).toBe(false);
   });
 });
+
+describe("calculateFeeBps — VIP", () => {
+  it("VIP always gets 0.5% regardless of stake or category", () => {
+    const r = calculateFeeBps("news", solToLamports(0.05), SOL_84, true);
+    expect(r.feeBps).toBe(50);
+    expect(r.feePercent).toBe(0.5);
+    expect(r.isVip).toBe(true);
+  });
+
+  it("VIP crypto also 0.5%", () => {
+    const r = calculateFeeBps("crypto", solToLamports(1), SOL_84, true);
+    expect(r.feeBps).toBe(50);
+    expect(r.isVip).toBe(true);
+  });
+
+  it("VIP skips USD floor", () => {
+    const r = calculateFeeBps("news", solToLamports(0.01), 1, true);
+    expect(r.feeBps).toBe(50);
+    expect(r.stakeTooLow).toBe(false);
+  });
+
+  it("non-VIP at same stake gets standard tier", () => {
+    const r = calculateFeeBps("news", solToLamports(0.05), SOL_84, false);
+    expect(r.feeBps).toBe(300);
+    expect(r.isVip).toBe(false);
+  });
+});

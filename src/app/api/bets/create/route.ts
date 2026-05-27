@@ -5,7 +5,7 @@ import { createBetSchema } from "@/lib/validators";
 import { computeBetIdHash, deriveBetPDA } from "@/lib/solana/program";
 import { isRateLimited } from "@/lib/rate-limit";
 import { fetchBinancePrice } from "@/lib/price-snapshot";
-import { calculateFeeBps, getSolPriceUsd } from "@/lib/fees";
+import { calculateFeeBps, getSolPriceUsd, checkVipStatus } from "@/lib/fees";
 import {
   RATE_LIMIT_MAX_CREATES,
   MAX_ACTIVE_BETS_PER_WALLET,
@@ -85,8 +85,11 @@ export async function POST(request: Request) {
     }
 
     // Server-side fee calculation — ignores client fee_bps
-    const solPrice = await getSolPriceUsd();
-    const feeCalc = calculateFeeBps(parsed.category, parsed.stake_lamports, solPrice);
+    const [solPrice, isVip] = await Promise.all([
+      getSolPriceUsd(),
+      checkVipStatus(parsed.maker_pubkey),
+    ]);
+    const feeCalc = calculateFeeBps(parsed.category, parsed.stake_lamports, solPrice, isVip);
 
     if (feeCalc.stakeTooLow) {
       const minSol = feeCalc.minStakeLamports! / 1_000_000_000;

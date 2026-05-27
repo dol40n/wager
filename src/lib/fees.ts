@@ -2,11 +2,13 @@ import { lamportsToSol } from "./utils";
 
 const NON_CRYPTO_USD_FLOOR = 0.20;
 const MAX_EFFECTIVE_FEE_PCT = 5;
+const VIP_FEE_BPS = 50; // 0.5%
 
 interface FeeResult {
   feeBps: number;
   feePercent: number;
   stakeTooLow: boolean;
+  isVip: boolean;
   minStakeLamports?: number;
 }
 
@@ -14,18 +16,19 @@ export function calculateFeeBps(
   category: string,
   stakeLamports: number,
   solPriceUsd: number | null,
+  isVip = false,
 ): FeeResult {
   const stakeSol = lamportsToSol(stakeLamports);
   const isCrypto = category === "crypto";
 
+  if (isVip) {
+    return { feeBps: VIP_FEE_BPS, feePercent: VIP_FEE_BPS / 100, stakeTooLow: false, isVip: true };
+  }
+
   let bps: number;
 
   if (isCrypto) {
-    if (stakeSol >= 5) {
-      bps = 75;
-    } else {
-      bps = 100;
-    }
+    bps = stakeSol >= 5 ? 75 : 100;
   } else {
     if (stakeSol >= 5) {
       bps = 75;
@@ -44,31 +47,26 @@ export function calculateFeeBps(
     const feeUsd = (bps / 10000) * potSol * solPriceUsd;
 
     if (feeUsd < NON_CRYPTO_USD_FLOOR) {
-      // Calculate bps needed to hit floor
       const neededBps = Math.ceil((NON_CRYPTO_USD_FLOOR / (potSol * solPriceUsd)) * 10000);
 
-      // If needed bps would make effective fee > 5%, reject the stake
       if (neededBps / 100 > MAX_EFFECTIVE_FEE_PCT) {
         const minPotUsd = NON_CRYPTO_USD_FLOOR / (MAX_EFFECTIVE_FEE_PCT / 100);
         const minStakeSol = minPotUsd / solPriceUsd / 2;
         const minStakeLamports = Math.ceil(minStakeSol * 1_000_000_000);
-        return {
-          feeBps: bps,
-          feePercent: bps / 100,
-          stakeTooLow: true,
-          minStakeLamports,
-        };
+        return { feeBps: bps, feePercent: bps / 100, stakeTooLow: true, isVip: false, minStakeLamports };
       }
 
       bps = neededBps;
     }
   }
 
-  return {
-    feeBps: bps,
-    feePercent: bps / 100,
-    stakeTooLow: false,
-  };
+  return { feeBps: bps, feePercent: bps / 100, stakeTooLow: false, isVip: false };
+}
+
+export async function checkVipStatus(pubkey: string): Promise<boolean> {
+  const { prisma } = await import("./db");
+  const vip = await prisma.vipWallet.findUnique({ where: { pubkey } });
+  return !!vip;
 }
 
 export async function getSolPriceUsd(): Promise<number | null> {
