@@ -148,7 +148,20 @@ export async function resolveWager(bet: BetForResolution): Promise<ResolveResult
   const cryptoResult = await resolveCryptoPriceComparison(bet);
   if (cryptoResult) return cryptoResult;
 
-  // Fall back to AI resolution
+  // Web search for evidence before AI analysis
+  const { searchWeb } = await import("@/lib/web-search");
+  const searchQuery = `${bet.normalizedQuestion} ${bet.objectiveCriteria.join(" ")} ${bet.deadlineUtc}`;
+  const webResults = await searchWeb(searchQuery);
+
+  console.log(`[resolver] Web search returned ${webResults.length} results for bet ${bet.id}`);
+
+  const searchContext = webResults.length > 0
+    ? "\n\nWEB SEARCH RESULTS (use these as evidence):\n" +
+      webResults.map((r, i) =>
+        `[${i + 1}] ${r.title}\n    URL: ${r.url}\n    ${r.content.slice(0, 300)}${r.published_date ? `\n    Published: ${r.published_date}` : ""}`
+      ).join("\n\n")
+    : "\n\nNo web search results found. If you cannot determine the outcome from your knowledge, return UNKNOWN with needs_manual_review: true.";
+
   const userMessage = JSON.stringify({
     bet_id: bet.id,
     question: bet.normalizedQuestion,
@@ -159,9 +172,9 @@ export async function resolveWager(bet: BetForResolution): Promise<ResolveResult
     resolution_method: bet.resolutionMethod,
     objective_criteria: bet.objectiveCriteria,
     category: bet.category,
-  });
+  }) + searchContext;
 
-  console.log(`[resolver] Starting resolution for bet ${bet.id}`);
+  console.log(`[resolver] Starting AI resolution for bet ${bet.id}`);
 
   const response = await client.messages.create({
     model: "claude-sonnet-4-20250514",
