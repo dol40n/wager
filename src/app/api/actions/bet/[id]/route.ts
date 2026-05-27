@@ -14,11 +14,17 @@ const ACTIONS_CORS_HEADERS = {
 };
 
 export async function GET(
-  _request: Request,
+  request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     const { id } = await params;
+
+    // Regular browsers get redirected to the bet page
+    const accept = request.headers.get("accept") || "";
+    if (accept.includes("text/html") && !accept.includes("application/json")) {
+      return NextResponse.redirect(new URL(`/bet/${id}`, APP_URL));
+    }
 
     const bet = await prisma.bet.findUnique({
       where: { id },
