@@ -4,6 +4,7 @@ import { prisma } from "@/lib/db";
 import { createBetSchema } from "@/lib/validators";
 import { computeBetIdHash, deriveBetPDA } from "@/lib/solana/program";
 import { isRateLimited } from "@/lib/rate-limit";
+import { fetchBinancePrice } from "@/lib/price-snapshot";
 import {
   RATE_LIMIT_MAX_CREATES,
   MAX_ACTIVE_BETS_PER_WALLET,
@@ -54,6 +55,37 @@ export async function POST(request: Request) {
       );
     }
 
+    // Snapshot price for crypto API-resolved wagers
+    let snapshotData: {
+      snapshotSource?: string;
+      snapshotSymbol?: string;
+      snapshotPrice?: number;
+      snapshotTimeUtc?: Date;
+    } = {};
+
+    if (
+      parsed.category === "crypto" &&
+      parsed.resolution_method === "api"
+    ) {
+      const symbol = detectCryptoSymbol(parsed.normalized_question);
+      if (symbol) {
+        try {
+          const snapshot = await fetchBinancePrice(symbol);
+          snapshotData = {
+            snapshotSource: snapshot.source,
+            snapshotSymbol: snapshot.symbol,
+            snapshotPrice: snapshot.snapshot_price,
+            snapshotTimeUtc: new Date(snapshot.snapshot_time_utc),
+          };
+          console.log(
+            `[create] Price snapshot: ${symbol} = $${snapshot.snapshot_price} at ${snapshot.snapshot_time_utc}`
+          );
+        } catch (err) {
+          console.warn(`[create] Failed to snapshot price for ${symbol}:`, err);
+        }
+      }
+    }
+
     const bet = await prisma.bet.create({
       data: {
         originalText: parsed.original_text,
@@ -79,6 +111,7 @@ export async function POST(request: Request) {
           .update(Date.now().toString() + parsed.maker_pubkey)
           .digest("hex"),
         allowedTaker: parsed.allowed_taker || null,
+        ...snapshotData,
       },
     });
 
@@ -111,4 +144,23 @@ export async function POST(request: Request) {
       { status: 500 }
     );
   }
+}
+
+function detectCryptoSymbol(question: string): string | null {
+  const q = question.toUpperCase();
+  const symbols: Record<string, string> = {
+    BTC: "BTCUSDT",
+    BITCOIN: "BTCUSDT",
+    ETH: "ETHUSDT",
+    ETHEREUM: "ETHUSDT",
+    SOL: "SOLUSDT",
+    SOLANA: "SOLUSDT",
+    BTCUSDT: "BTCUSDT",
+    ETHUSDT: "ETHUSDT",
+    SOLUSDT: "SOLUSDT",
+  };
+  for (const [keyword, symbol] of Object.entries(symbols)) {
+    if (q.includes(keyword)) return symbol;
+  }
+  return null;
 }

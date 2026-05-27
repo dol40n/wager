@@ -67,6 +67,10 @@ model Bet {
   resolverConfidence  Float?
   needsManualReview   Boolean          @default(false)
   allowedTaker        String?
+  snapshotSource      String?
+  snapshotSymbol      String?
+  snapshotPrice       Float?
+  snapshotTimeUtc     DateTime?
 
   makerId String
   maker   UserWallet @relation("MakerBets", fields: [makerId], references: [id])

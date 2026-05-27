@@ -47,6 +47,10 @@ export async function POST(
       resolutionMethod: bet.resolutionMethod,
       objectiveCriteria: bet.objectiveCriteria,
       category: bet.category,
+      snapshotSource: bet.snapshotSource,
+      snapshotSymbol: bet.snapshotSymbol,
+      snapshotPrice: bet.snapshotPrice,
+      snapshotTimeUtc: bet.snapshotTimeUtc?.toISOString(),
     });
 
     for (const ev of resolution.evidence) {

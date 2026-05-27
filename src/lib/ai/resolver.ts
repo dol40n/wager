@@ -50,6 +50,10 @@ export interface BetForResolution {
   resolutionMethod: string;
   objectiveCriteria: string[];
   category: string;
+  snapshotSource?: string | null;
+  snapshotSymbol?: string | null;
+  snapshotPrice?: number | null;
+  snapshotTimeUtc?: string | null;
 }
 
 export function canonicalizeEvidence(evidence: EvidenceItem[]): string {
@@ -59,7 +63,92 @@ export function canonicalizeEvidence(evidence: EvidenceItem[]): string {
   return JSON.stringify(sorted);
 }
 
+async function resolveCryptoPriceComparison(
+  bet: BetForResolution
+): Promise<ResolveResult | null> {
+  if (
+    bet.category !== "crypto" ||
+    bet.resolutionMethod !== "API" ||
+    !bet.snapshotSymbol ||
+    !bet.snapshotPrice ||
+    !bet.snapshotTimeUtc
+  ) {
+    return null;
+  }
+
+  console.log(
+    `[resolver] Crypto price comparison: ${bet.snapshotSymbol} snapshot=$${bet.snapshotPrice} at ${bet.snapshotTimeUtc}`
+  );
+
+  try {
+    const { fetchBinancePrice } = await import("@/lib/price-snapshot");
+    const current = await fetchBinancePrice(bet.snapshotSymbol);
+    const startPrice = bet.snapshotPrice;
+    const endPrice = current.snapshot_price;
+    const priceUp = endPrice > startPrice;
+    const priceSame = endPrice === startPrice;
+
+    const yesMeansUp =
+      bet.yesDefinition.toLowerCase().includes("higher") ||
+      bet.yesDefinition.toLowerCase().includes("выше") ||
+      bet.yesDefinition.toLowerCase().includes("strictly higher");
+
+    let winnerSide: "YES" | "NO";
+    if (yesMeansUp) {
+      winnerSide = priceUp ? "YES" : "NO";
+    } else {
+      winnerSide = priceUp ? "NO" : "YES";
+    }
+
+    // Exact same price → NO wins (not strictly higher)
+    if (priceSame) {
+      winnerSide = yesMeansUp ? "NO" : "YES";
+    }
+
+    const evidence: EvidenceItem[] = [
+      {
+        source_url: `https://api.binance.com/api/v3/ticker/price?symbol=${bet.snapshotSymbol}`,
+        source_name: "Binance API (start)",
+        published_or_observed_at: bet.snapshotTimeUtc,
+        relevant_excerpt: `${bet.snapshotSymbol} = $${startPrice.toFixed(2)} at wager creation`,
+        supports: "NEUTRAL",
+        explanation: `Reference price at wager creation time`,
+      },
+      {
+        source_url: `https://api.binance.com/api/v3/ticker/price?symbol=${bet.snapshotSymbol}`,
+        source_name: "Binance API (end)",
+        published_or_observed_at: current.snapshot_time_utc,
+        relevant_excerpt: `${bet.snapshotSymbol} = $${endPrice.toFixed(2)} at resolution`,
+        supports: winnerSide === "YES" ? "YES" : "NO",
+        explanation: `Price ${priceUp ? "increased" : priceSame ? "unchanged" : "decreased"}: $${startPrice.toFixed(2)} → $${endPrice.toFixed(2)} (${((endPrice - startPrice) / startPrice * 100).toFixed(2)}%)`,
+      },
+    ];
+
+    console.log(
+      `[resolver] Binance result: $${startPrice.toFixed(2)} → $${endPrice.toFixed(2)}, winner=${winnerSide}`
+    );
+
+    return {
+      bet_id: bet.id,
+      winner_side: winnerSide,
+      confidence: 0.99,
+      needs_manual_review: false,
+      evidence,
+      reasoning_summary: `${bet.snapshotSymbol} price moved from $${startPrice.toFixed(2)} to $${endPrice.toFixed(2)} (${((endPrice - startPrice) / startPrice * 100).toFixed(2)}%). ${winnerSide} wins.`,
+      failure_reason: null,
+    };
+  } catch (err) {
+    console.error(`[resolver] Binance price fetch failed:`, err);
+    return null;
+  }
+}
+
 export async function resolveWager(bet: BetForResolution): Promise<ResolveResult> {
+  // Try deterministic crypto price resolution first
+  const cryptoResult = await resolveCryptoPriceComparison(bet);
+  if (cryptoResult) return cryptoResult;
+
+  // Fall back to AI resolution
   const userMessage = JSON.stringify({
     bet_id: bet.id,
     question: bet.normalizedQuestion,
