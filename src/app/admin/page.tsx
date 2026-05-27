@@ -42,21 +42,30 @@ export default function AdminPage() {
 
   async function fetchBets() {
     setLoading(true);
-    const res = await fetch("/api/bets?status=DISPUTED&limit=100");
-    const disputed = res.ok ? await res.json() : { bets: [] };
+    try {
+      const [res1, res2, res3] = await Promise.all([
+        fetch("/api/bets?status=DISPUTED&limit=100"),
+        fetch("/api/bets?status=RESULT_PROPOSED&limit=100"),
+        fetch("/api/bets?status=ACCEPTED&limit=100"),
+      ]);
+      const disputed = res1.ok ? await res1.json() : { bets: [] };
+      const proposed = res2.ok ? await res2.json() : { bets: [] };
+      const accepted = res3.ok ? await res3.json() : { bets: [] };
 
-    const res2 = await fetch("/api/bets?status=RESULT_PROPOSED&limit=100");
-    const proposed = res2.ok ? await res2.json() : { bets: [] };
+      const needsReview = (accepted.bets || []).filter(
+        (b: AdminBet) => b.needsManualReview
+      );
 
-    const res3 = await fetch("/api/bets?status=ACCEPTED&limit=100");
-    const accepted = res3.ok ? await res3.json() : { bets: [] };
-
-    const needsReview = accepted.bets.filter(
-      (b: AdminBet) => b.needsManualReview
-    );
-
-    setBets([...disputed.bets, ...proposed.bets, ...needsReview]);
-    setLoading(false);
+      setBets([
+        ...(disputed.bets || []),
+        ...(proposed.bets || []),
+        ...needsReview,
+      ]);
+    } catch (err) {
+      setMessage("Failed to load bets: " + (err instanceof Error ? err.message : "unknown"));
+    } finally {
+      setLoading(false);
+    }
   }
 
   useEffect(() => {
@@ -262,10 +271,10 @@ export default function AdminPage() {
                   </p>
                 )}
 
-                {bet.disputes.length > 0 && (
+                {(bet.disputes || []).length > 0 && (
                   <div className="mb-3">
                     <p className="text-sm font-medium mb-1">Disputes:</p>
-                    {bet.disputes.map((d) => (
+                    {(bet.disputes || []).map((d) => (
                       <p key={d.id} className="text-sm text-muted-foreground">
                         - {d.reason}
                       </p>
@@ -273,10 +282,10 @@ export default function AdminPage() {
                   </div>
                 )}
 
-                {bet.evidence.length > 0 && (
+                {(bet.evidence || []).length > 0 && (
                   <div className="mb-3">
                     <p className="text-sm font-medium mb-1">Evidence:</p>
-                    {bet.evidence.map((e) => (
+                    {(bet.evidence || []).map((e) => (
                       <p key={e.id} className="text-sm text-muted-foreground">
                         [{e.supports}] {e.sourceName}: {e.relevantExcerpt.slice(0, 100)}...
                       </p>
