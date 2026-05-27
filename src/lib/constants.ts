@@ -37,6 +37,30 @@ export const RATE_LIMIT_MAX_NORMALIZES = 10;
 export const VIP_MIN_FINALIZED_BETS = 10;
 export const VIP_MIN_VOLUME_SOL = 50;
 
+export const UNFALSIFIABLE_TOPICS = [
+  "second coming",
+  "rapture",
+  "messiah",
+  "prophecy",
+  "пророчество",
+  "пришествие",
+  "alien contact",
+  "ufo disclosure",
+  "afterlife",
+  "загробн",
+  "paranormal",
+  "ghost",
+  "telekinesis",
+  "telepathy",
+  "flat earth",
+  "illuminati",
+  "god exist",
+  "бог существ",
+  "soul",
+  "reincarnation",
+  "astral projection",
+];
+
 export const REJECTED_TOPICS = [
   "assassin",
   "murder",

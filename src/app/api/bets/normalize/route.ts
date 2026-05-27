@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { normalizeRequestSchema } from "@/lib/validators";
 import { normalizeWagerCondition } from "@/lib/ai/normalize";
 import { isRateLimited } from "@/lib/rate-limit";
-import { RATE_LIMIT_MAX_NORMALIZES, REJECTED_TOPICS } from "@/lib/constants";
+import { RATE_LIMIT_MAX_NORMALIZES, REJECTED_TOPICS, UNFALSIFIABLE_TOPICS } from "@/lib/constants";
 
 export async function POST(request: Request) {
   try {
@@ -34,6 +34,25 @@ export async function POST(request: Request) {
         ambiguity_notes: [],
         should_reject: true,
         rejection_reason: `Wager involves prohibited content and cannot be created.`,
+      });
+    }
+
+    const unfalsifiable = UNFALSIFIABLE_TOPICS.find((t) => lower.includes(t));
+    if (unfalsifiable) {
+      return NextResponse.json({
+        original_text: parsed.text,
+        normalized_question: "",
+        category: "custom",
+        yes_definition: "",
+        no_definition: "",
+        deadline_utc: "",
+        resolution_sources: [],
+        resolution_method: "manual_review",
+        objective_criteria: [],
+        ambiguity_score: 1,
+        ambiguity_notes: ["This topic has no objective verification criteria."],
+        should_reject: true,
+        rejection_reason: "This wager cannot be objectively verified. Outcomes must be checkable against a public data source (news, API, official record).",
       });
     }
 

@@ -69,6 +69,13 @@ Ambiguity rules:
 - If a condition is fundamentally subjective, set should_reject = true.
 - If illegal/violent/harmful, set should_reject = true.
 
+Unfalsifiable / unverifiable wagers:
+- REJECT any wager where the outcome cannot be verified by a publicly accessible, objective data source.
+- Examples: religious prophecies, supernatural events, personal feelings, philosophical claims, conspiracy theories, afterlife, paranormal activity.
+- The test: "Could a neutral third party verify this outcome using a specific website, API, or official record?" If NO → reject.
+- Set should_reject = true with rejection_reason = "This wager has no objective verification criteria. Outcomes must be verifiable by a publicly accessible data source (news site, API, official record)."
+- If the wager is about the ABSENCE of an extraordinary event (e.g. "aliens won't contact Earth"), also reject — the absence of an unfalsifiable event is itself unfalsifiable.
+
 You MUST respond with a JSON object using EXACTLY these field names:
 {
   "original_text": "<the original wager text>",
@@ -177,6 +184,21 @@ export async function normalizeWagerCondition(
       result.should_reject = true;
       result.rejection_reason =
         "Deadline is in the past or too close to the current time. Please choose a future deadline.";
+    }
+  }
+
+  // Server-side unfalsifiable guard: reject if no concrete criteria
+  if (!result.should_reject) {
+    const criteria = result.objective_criteria.join(" ").toLowerCase();
+    const sources = result.resolution_sources.join(" ").toLowerCase();
+    const hasConcreteSource = sources.length > 3 &&
+      !["common knowledge", "general observation", "personal judgment", "general knowledge"].some((v) => sources.includes(v));
+    const hasConcreteCriteria = result.objective_criteria.length > 0 && criteria.length > 10;
+
+    if (!hasConcreteSource || !hasConcreteCriteria) {
+      result.should_reject = true;
+      result.rejection_reason = "No verifiable resolution source or objective criteria. Wager outcomes must be checkable against a specific public data source.";
+      result.ambiguity_score = Math.max(result.ambiguity_score, 0.8);
     }
   }
 
