@@ -14,7 +14,7 @@ const rejected: NormalizeResult = {
   ambiguity_score: 0.4,
   ambiguity_notes: ["Missing reference price", "Clarify: use price at interval start or fixed amount"],
   should_reject: true,
-  rejection_reason: "Higher than what? Specify an explicit price target or reference point.",
+  rejection_reason: "Higher than what? Specify an explicit price target or reference point.", resolution_plan: null, suggestions: [],
 };
 
 const accepted: NormalizeResult = {
@@ -30,7 +30,7 @@ const accepted: NormalizeResult = {
   ambiguity_score: 0,
   ambiguity_notes: [],
   should_reject: false,
-  rejection_reason: null,
+  rejection_reason: null, resolution_plan: null, suggestions: [],
 };
 
 describe("rejected wager UI rendering rules", () => {

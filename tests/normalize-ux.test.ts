@@ -18,7 +18,7 @@ const rejected: NormalizeResult = {
   ambiguity_score: 0.30,
   ambiguity_notes: ["Directional wager — maker must choose UP or DOWN"],
   should_reject: true,
-  rejection_reason: "Ambiguity score too high (0.30). Directional wager — maker must choose UP or DOWN",
+  rejection_reason: "Ambiguity score too high (0.30). Directional wager — maker must choose UP or DOWN", resolution_plan: null, suggestions: [],
 };
 
 const accepted: NormalizeResult = {
@@ -34,7 +34,7 @@ const accepted: NormalizeResult = {
   ambiguity_score: 0,
   ambiguity_notes: [],
   should_reject: false,
-  rejection_reason: null,
+  rejection_reason: null, resolution_plan: null, suggestions: [],
 };
 
 describe("normalize UX guards", () => {

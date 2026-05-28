@@ -35,7 +35,7 @@ const base: NormalizeResult = {
   ambiguity_score: 0,
   ambiguity_notes: [],
   should_reject: false,
-  rejection_reason: null,
+  rejection_reason: null, resolution_plan: null, suggestions: [],
 };
 
 describe("normalize server-side guards", () => {

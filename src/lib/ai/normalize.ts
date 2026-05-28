@@ -90,7 +90,9 @@ You MUST respond with a JSON object using EXACTLY these field names:
   "ambiguity_score": 0.0,
   "ambiguity_notes": [],
   "should_reject": false,
-  "rejection_reason": null
+  "rejection_reason": null,
+  "resolution_plan": "<1-2 sentence explanation of HOW the outcome will be verified — which specific site/API/record, what data point, how it maps to YES/NO. Always provide this even if rejecting.>",
+  "suggestions": ["<if should_reject is true, provide 1-3 alternative phrasings that WOULD be valid. Each suggestion must be a complete, self-contained wager text the user can submit directly. If the wager is valid (should_reject=false), return empty array.>"]
 }
 
 Respond ONLY with valid JSON. No markdown, no commentary, no code fences.`;
@@ -110,6 +112,8 @@ const normalizeResultSchema = z.object({
   ambiguity_notes: z.array(z.string()),
   should_reject: z.boolean(),
   rejection_reason: z.string().nullable(),
+  resolution_plan: z.string().nullable().default(null),
+  suggestions: z.array(z.string()).default([]),
 });
 
 export async function normalizeWagerCondition(
@@ -139,12 +143,14 @@ export async function normalizeWagerCondition(
         ambiguity_notes: { type: "array" as const, items: { type: "string" as const } },
         should_reject: { type: "boolean" as const },
         rejection_reason: { type: ["string", "null"] as const },
+        resolution_plan: { type: ["string", "null"] as const },
+        suggestions: { type: "array" as const, items: { type: "string" as const } },
       },
       required: [
         "original_text", "normalized_question", "category", "yes_definition",
         "no_definition", "deadline_utc", "resolution_sources", "resolution_method",
         "objective_criteria", "ambiguity_score", "ambiguity_notes", "should_reject",
-        "rejection_reason",
+        "rejection_reason", "resolution_plan", "suggestions",
       ],
     },
   };

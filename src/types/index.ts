@@ -12,6 +12,8 @@ export interface NormalizeResult {
   ambiguity_notes: string[];
   should_reject: boolean;
   rejection_reason: string | null;
+  resolution_plan: string | null;
+  suggestions: string[];
 }
 
 export interface EvidenceItem {

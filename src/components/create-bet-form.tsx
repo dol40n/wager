@@ -250,6 +250,26 @@ export function CreateBetForm() {
               </div>
             )}
 
+            {normalized.suggestions && normalized.suggestions.length > 0 && (
+              <div className="text-sm space-y-2">
+                <span className="font-medium">Try one of these instead:</span>
+                <div className="space-y-2">
+                  {normalized.suggestions.map((suggestion, i) => (
+                    <button
+                      key={i}
+                      className="block w-full text-left p-3 border rounded-lg hover:border-primary/50 hover:bg-muted/50 transition-colors cursor-pointer"
+                      onClick={() => {
+                        setText(suggestion);
+                        setStep("input");
+                      }}
+                    >
+                      <span className="text-muted-foreground">{suggestion}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
             <p className="text-sm text-muted-foreground">
               Go back and rephrase with: a clear condition, specific price target,
               explicit deadline with year, and your chosen side.
@@ -309,6 +329,12 @@ export function CreateBetForm() {
                 <span className="font-medium">Resolution Source:</span>{" "}
                 {normalized.resolution_sources.join(", ")}
               </div>
+              {normalized.resolution_plan && (
+                <div className="p-2 border rounded bg-muted/30">
+                  <span className="font-medium">How this will be verified:</span>
+                  <p className="text-muted-foreground mt-1">{normalized.resolution_plan}</p>
+                </div>
+              )}
               {feePreview && (
                 <div className="p-2 bg-muted rounded">
                   <span className="font-medium">Stake:</span> {stake} SOL each &middot;{" "}
