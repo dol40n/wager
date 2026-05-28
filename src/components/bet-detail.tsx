@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { useRouter } from "next/navigation";
 import { useWallet, useConnection } from "@solana/wallet-adapter-react";
 import dynamic from "next/dynamic";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -12,6 +13,35 @@ import { AlertTriangle, Copy, ExternalLink, Loader2 } from "lucide-react";
 import { lamportsToSol, formatDeadline, statusLabel, shortenAddress } from "@/lib/utils";
 import { APP_URL } from "@/lib/constants";
 import { sendSerializedTransactionWithWallet } from "@/lib/solana/send-with-wallet";
+
+const TERMINAL_STATUSES = ["FINALIZED", "CANCELLED", "REFUNDED"];
+const POLL_INTERVAL_MS = 8000;
+
+// Polls the bet status while it's in a non-terminal state. When the status
+// changes server-side (taker accepts, resolver proposes, dispute window closes),
+// refreshes the server component to pull fresh data without a full reload.
+function useStatusPolling(betId: string, currentStatus: string, onChange: () => void) {
+  useEffect(() => {
+    if (TERMINAL_STATUSES.includes(currentStatus)) return;
+
+    let active = true;
+    const poll = async () => {
+      try {
+        const res = await fetch(`/api/bets/${betId}`, { cache: "no-store" });
+        if (!res.ok || !active) return;
+        const data = await res.json();
+        if (active && data.status && data.status !== currentStatus) {
+          onChange();
+        }
+      } catch {
+        // network blip — next tick retries
+      }
+    };
+
+    const id = setInterval(poll, POLL_INTERVAL_MS);
+    return () => { active = false; clearInterval(id); };
+  }, [betId, currentStatus, onChange]);
+}
 
 const WalletMultiButton = dynamic(
   () => import("@solana/wallet-adapter-react-ui").then((m) => m.WalletMultiButton),
@@ -79,6 +109,7 @@ function useCountdown(deadline: string | null): string | null {
 }
 
 export function BetDetail({ bet }: { bet: BetDetailData }) {
+  const router = useRouter();
   const { publicKey, wallet, signTransaction } = useWallet();
   const { connection } = useConnection();
   const [disputeReason, setDisputeReason] = useState("");
@@ -87,6 +118,9 @@ export function BetDetail({ bet }: { bet: BetDetailData }) {
   const [message, setMessage] = useState<string | null>(null);
   const [txSig, setTxSig] = useState<string | null>(null);
 
+  useStatusPolling(bet.id, bet.status, () => router.refresh());
+
+  const isLive = !TERMINAL_STATUSES.includes(bet.status);
   const disputeCountdown = useCountdown(bet.disputeDeadlineUtc);
   const deadlineCountdown = useCountdown(bet.deadlineUtc);
 
@@ -253,17 +287,28 @@ export function BetDetail({ bet }: { bet: BetDetailData }) {
             <CardTitle className="text-lg">
               {bet.normalizedQuestion}
             </CardTitle>
-            <Badge
-              variant={
-                bet.status === "FINALIZED"
-                  ? "success"
-                  : bet.status === "DISPUTED"
-                  ? "destructive"
-                  : "outline"
-              }
-            >
-              {statusLabel(bet.status)}
-            </Badge>
+            <div className="flex items-center gap-2 flex-shrink-0">
+              {isLive && (
+                <span className="flex items-center gap-1 text-xs text-muted-foreground">
+                  <span className="relative flex h-2 w-2">
+                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
+                    <span className="relative inline-flex rounded-full h-2 w-2 bg-green-500"></span>
+                  </span>
+                  Live
+                </span>
+              )}
+              <Badge
+                variant={
+                  bet.status === "FINALIZED"
+                    ? "success"
+                    : bet.status === "DISPUTED"
+                    ? "destructive"
+                    : "outline"
+                }
+              >
+                {statusLabel(bet.status)}
+              </Badge>
+            </div>
           </div>
         </CardHeader>
         <CardContent className="space-y-4">
