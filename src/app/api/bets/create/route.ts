@@ -75,7 +75,7 @@ export async function POST(request: Request) {
       const symbol = detectCryptoSymbol(parsed.normalized_question);
       if (symbol) {
         try {
-          const snapshot = await fetchBinancePrice(symbol);
+          const snapshot = await fetchBinancePrice(symbol, true);
           snapshotData = {
             snapshotSource: snapshot.source,
             snapshotSymbol: snapshot.symbol,

@@ -11,7 +11,30 @@ const COINGECKO_IDS: Record<string, string> = {
   SOLUSDT: "solana",
 };
 
-export async function fetchBinancePrice(symbol: string = "BTCUSDT"): Promise<PriceSnapshot> {
+// Short-lived cache to dedupe burst fetches (e.g. many crypto bets resolving in one cron run).
+// 15s TTL — crypto price movement over 15s is negligible for snapshot purposes.
+const PRICE_CACHE_TTL_MS = 15_000;
+const priceCache = new Map<string, { snapshot: PriceSnapshot; expiresAt: number }>();
+
+// fresh=true bypasses cache — used at bet creation where the snapshot must
+// reflect the exact creation moment. Resolution uses the cache to dedupe
+// burst fetches and keep same-deadline bets consistent.
+export async function fetchBinancePrice(
+  symbol: string = "BTCUSDT",
+  fresh = false
+): Promise<PriceSnapshot> {
+  if (!fresh) {
+    const cached = priceCache.get(symbol);
+    if (cached && cached.expiresAt > Date.now()) {
+      return cached.snapshot;
+    }
+  }
+  const snapshot = await fetchPriceUncached(symbol);
+  priceCache.set(symbol, { snapshot, expiresAt: Date.now() + PRICE_CACHE_TTL_MS });
+  return snapshot;
+}
+
+async function fetchPriceUncached(symbol: string): Promise<PriceSnapshot> {
   // Try Binance first
   try {
     const res = await fetch(

@@ -5,6 +5,106 @@ import { hashEvidence } from "@/lib/utils";
 import { DISPUTE_WINDOW_SECONDS } from "@/lib/constants";
 
 const MAX_RESOLVE_ATTEMPTS = 3;
+const CONCURRENCY = 4;
+
+type BetWithParties = Awaited<ReturnType<typeof fetchBets>>[number];
+
+async function fetchBets() {
+  return prisma.bet.findMany({
+    where: {
+      status: "ACCEPTED",
+      deadlineUtc: { lte: new Date() },
+      resolveAttempts: { lt: MAX_RESOLVE_ATTEMPTS },
+    },
+    include: { maker: true, taker: true },
+  });
+}
+
+async function resolveOne(bet: BetWithParties) {
+  const attempt = bet.resolveAttempts + 1;
+  try {
+    console.log(`[cron] Resolving ${bet.id} (attempt ${attempt}/${MAX_RESOLVE_ATTEMPTS})`);
+
+    const resolution = await resolveWager({
+      id: bet.id,
+      normalizedQuestion: bet.normalizedQuestion,
+      yesDefinition: bet.yesDefinition,
+      noDefinition: bet.noDefinition,
+      deadlineUtc: bet.deadlineUtc.toISOString(),
+      resolutionSources: bet.resolutionSources,
+      resolutionMethod: bet.resolutionMethod,
+      objectiveCriteria: bet.objectiveCriteria,
+      category: bet.category,
+      snapshotSource: bet.snapshotSource,
+      snapshotSymbol: bet.snapshotSymbol,
+      snapshotPrice: bet.snapshotPrice,
+      snapshotTimeUtc: bet.snapshotTimeUtc?.toISOString(),
+    });
+
+    // Batch insert all evidence in one query
+    if (resolution.evidence.length > 0) {
+      await prisma.resolutionEvidence.createMany({
+        data: resolution.evidence.map((ev) => ({
+          betId: bet.id,
+          sourceUrl: ev.source_url,
+          sourceName: ev.source_name,
+          publishedOrObserved: ev.published_or_observed_at
+            ? new Date(ev.published_or_observed_at)
+            : null,
+          relevantExcerpt: ev.relevant_excerpt,
+          supports: ev.supports,
+          explanation: ev.explanation,
+        })),
+      });
+    }
+
+    const evidenceJson = canonicalizeEvidence(resolution.evidence);
+    const evidenceHashHex = hashEvidence(evidenceJson).toString("hex");
+
+    await prisma.bet.update({
+      where: { id: bet.id },
+      data: {
+        proposedWinner: resolution.winner_side !== "UNKNOWN" ? resolution.winner_side : null,
+        resolverConfidence: resolution.confidence,
+        needsManualReview: resolution.needs_manual_review,
+        evidenceHash: evidenceHashHex,
+        status: resolution.needs_manual_review ? "ACCEPTED" : "RESULT_PROPOSED",
+        disputeDeadlineUtc: resolution.needs_manual_review
+          ? null
+          : new Date(Date.now() + DISPUTE_WINDOW_SECONDS * 1000),
+        resolveAttempts: attempt,
+        lastResolveError: null,
+      },
+    });
+
+    console.log(
+      `[cron] Resolved ${bet.id}: ${resolution.winner_side} (${resolution.confidence}, review=${resolution.needs_manual_review})`
+    );
+
+    return {
+      bet_id: bet.id,
+      attempt,
+      winner: resolution.winner_side,
+      confidence: resolution.confidence,
+      review: resolution.needs_manual_review,
+      evidence_count: resolution.evidence.length,
+    };
+  } catch (err) {
+    const errorMsg = err instanceof Error ? err.message : "unknown";
+    console.error(`[cron] Error resolving ${bet.id} (attempt ${attempt}):`, err);
+
+    await prisma.bet.update({
+      where: { id: bet.id },
+      data: {
+        resolveAttempts: attempt,
+        lastResolveError: errorMsg,
+        needsManualReview: attempt >= MAX_RESOLVE_ATTEMPTS,
+      },
+    });
+
+    return { bet_id: bet.id, attempt, error: errorMsg, exhausted: attempt >= MAX_RESOLVE_ATTEMPTS };
+  }
+}
 
 export async function GET(request: Request) {
   const authHeader = request.headers.get("authorization");
@@ -16,106 +116,15 @@ export async function GET(request: Request) {
   }
 
   try {
-    const bets = await prisma.bet.findMany({
-      where: {
-        status: "ACCEPTED",
-        deadlineUtc: { lte: new Date() },
-        resolveAttempts: { lt: MAX_RESOLVE_ATTEMPTS },
-      },
-      include: { maker: true, taker: true },
-    });
+    const bets = await fetchBets();
+    console.log(`[cron] Found ${bets.length} bets to resolve (concurrency: ${CONCURRENCY})`);
 
-    console.log(`[cron] Found ${bets.length} bets to resolve (max attempts: ${MAX_RESOLVE_ATTEMPTS})`);
-    const results = [];
-
-    for (const bet of bets) {
-      const attempt = bet.resolveAttempts + 1;
-      try {
-        console.log(`[cron] Resolving ${bet.id} (attempt ${attempt}/${MAX_RESOLVE_ATTEMPTS})`);
-
-        const resolution = await resolveWager({
-          id: bet.id,
-          normalizedQuestion: bet.normalizedQuestion,
-          yesDefinition: bet.yesDefinition,
-          noDefinition: bet.noDefinition,
-          deadlineUtc: bet.deadlineUtc.toISOString(),
-          resolutionSources: bet.resolutionSources,
-          resolutionMethod: bet.resolutionMethod,
-          objectiveCriteria: bet.objectiveCriteria,
-          category: bet.category,
-          snapshotSource: bet.snapshotSource,
-          snapshotSymbol: bet.snapshotSymbol,
-          snapshotPrice: bet.snapshotPrice,
-          snapshotTimeUtc: bet.snapshotTimeUtc?.toISOString(),
-        });
-
-        for (const ev of resolution.evidence) {
-          await prisma.resolutionEvidence.create({
-            data: {
-              betId: bet.id,
-              sourceUrl: ev.source_url,
-              sourceName: ev.source_name,
-              publishedOrObserved: ev.published_or_observed_at
-                ? new Date(ev.published_or_observed_at)
-                : null,
-              relevantExcerpt: ev.relevant_excerpt,
-              supports: ev.supports,
-              explanation: ev.explanation,
-            },
-          });
-        }
-
-        const evidenceJson = canonicalizeEvidence(resolution.evidence);
-        const evidenceHashHex = hashEvidence(evidenceJson).toString("hex");
-
-        await prisma.bet.update({
-          where: { id: bet.id },
-          data: {
-            proposedWinner: resolution.winner_side !== "UNKNOWN" ? resolution.winner_side : null,
-            resolverConfidence: resolution.confidence,
-            needsManualReview: resolution.needs_manual_review,
-            evidenceHash: evidenceHashHex,
-            status: resolution.needs_manual_review ? "ACCEPTED" : "RESULT_PROPOSED",
-            disputeDeadlineUtc: resolution.needs_manual_review
-              ? null
-              : new Date(Date.now() + DISPUTE_WINDOW_SECONDS * 1000),
-            resolveAttempts: attempt,
-            lastResolveError: null,
-          },
-        });
-
-        results.push({
-          bet_id: bet.id,
-          attempt,
-          winner: resolution.winner_side,
-          confidence: resolution.confidence,
-          review: resolution.needs_manual_review,
-          evidence_count: resolution.evidence.length,
-        });
-
-        console.log(
-          `[cron] Resolved ${bet.id}: ${resolution.winner_side} (${resolution.confidence}, review=${resolution.needs_manual_review})`
-        );
-      } catch (err) {
-        const errorMsg = err instanceof Error ? err.message : "unknown";
-        console.error(`[cron] Error resolving ${bet.id} (attempt ${attempt}):`, err);
-
-        await prisma.bet.update({
-          where: { id: bet.id },
-          data: {
-            resolveAttempts: attempt,
-            lastResolveError: errorMsg,
-            needsManualReview: attempt >= MAX_RESOLVE_ATTEMPTS,
-          },
-        });
-
-        results.push({
-          bet_id: bet.id,
-          attempt,
-          error: errorMsg,
-          exhausted: attempt >= MAX_RESOLVE_ATTEMPTS,
-        });
-      }
+    // Process in concurrent batches to bound API/DB load
+    const results: Array<Awaited<ReturnType<typeof resolveOne>>> = [];
+    for (let i = 0; i < bets.length; i += CONCURRENCY) {
+      const batch = bets.slice(i, i + CONCURRENCY);
+      const batchResults = await Promise.all(batch.map(resolveOne));
+      results.push(...batchResults);
     }
 
     return NextResponse.json({
