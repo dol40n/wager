@@ -43,8 +43,17 @@ export async function POST(
     const dbStatusBefore = bet.status;
     const updates: Record<string, unknown> = {};
 
-    // Admin forced overrides
+    // Admin forced overrides — validate status is a real enum value.
+    // FINALIZED is blocked here: it must go through on-chain settlement
+    // (finalize-onchain) which verifies the vault is drained first.
+    const VALID_STATUSES = ["OPEN", "ACCEPTED", "RESULT_PROPOSED", "DISPUTED", "CANCELLED", "REFUNDED"];
     if (forcedStatus && isAdmin) {
+      if (!VALID_STATUSES.includes(forcedStatus)) {
+        return NextResponse.json(
+          { error: `Invalid status. FINALIZED requires on-chain settlement via finalize-onchain. Allowed: ${VALID_STATUSES.join(", ")}` },
+          { status: 400 }
+        );
+      }
       updates.status = forcedStatus;
     }
     if (forcedTaker && isAdmin && !bet.takerId) {
@@ -116,7 +125,7 @@ export async function POST(
   } catch (error) {
     console.error("Sync error:", error);
     return NextResponse.json(
-      { error: error instanceof Error ? error.message : "Failed to sync" },
+      { error: "Failed to sync" },
       { status: 500 }
     );
   }

@@ -37,6 +37,23 @@ export async function POST(
       return NextResponse.json({ error: "Bet has no taker" }, { status: 400 });
     }
 
+    // Cross-check: warn if admin's winner differs from the AI's proposed verdict.
+    // Requires explicit override_ai_verdict flag to proceed against the AI.
+    if (
+      bet.proposedWinner &&
+      bet.proposedWinner !== parsed.winner_side &&
+      !parsed.override_ai_verdict
+    ) {
+      return NextResponse.json(
+        {
+          error: `Winner side (${parsed.winner_side}) contradicts AI proposed winner (${bet.proposedWinner}). To finalize against the AI verdict, resend with override_ai_verdict: true.`,
+          ai_proposed: bet.proposedWinner,
+          requested: parsed.winner_side,
+        },
+        { status: 409 }
+      );
+    }
+
     const winnerPubkey =
       parsed.winner_side === "YES"
         ? (bet.makerSide === "YES" ? bet.maker.pubkey : bet.taker.pubkey)

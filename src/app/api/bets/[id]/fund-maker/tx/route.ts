@@ -86,7 +86,7 @@ export async function POST(
   } catch (error) {
     console.error("Fund maker tx error:", error);
     return NextResponse.json(
-      { error: error instanceof Error ? error.message : "Failed to build fund transaction" },
+      { error: "Failed to build fund transaction" },
       { status: 500 }
     );
   }

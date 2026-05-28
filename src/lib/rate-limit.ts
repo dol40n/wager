@@ -17,8 +17,13 @@ export async function isRateLimited(
 
     await prisma.rateLimitEntry.create({ data: { key } });
     return false;
-  } catch {
-    // DB error → fail open to avoid blocking legitimate requests
+  } catch (err) {
+    // Deliberate fail-open: a DB outage should not lock out all users.
+    // Tradeoff — rate limiting is unenforced during a DB outage. Acceptable
+    // because the protected endpoints (normalize/create) have no destructive
+    // on-chain effect; the actual fund/accept TXs are wallet-signed and bounded
+    // by the on-chain program. Logged so outages are visible.
+    console.error("[rate-limit] DB error, failing open:", err);
     return false;
   }
 }

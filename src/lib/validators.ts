@@ -42,15 +42,35 @@ export const disputeSchema = z.object({
 export const adminFinalizeSchema = z.object({
   winner_side: z.enum(["YES", "NO"]),
   confirmation: z.string().optional(),
+  override_ai_verdict: z.boolean().optional(),
 });
 
 export const resolverRunSchema = z.object({
   bet_id: z.string().optional(),
 });
 
+import { timingSafeEqual } from "crypto";
+
+// Constant-time string comparison to prevent timing attacks on secret comparison.
+export function safeCompare(a: string | null | undefined, b: string | null | undefined): boolean {
+  if (!a || !b) return false;
+  const bufA = Buffer.from(a);
+  const bufB = Buffer.from(b);
+  if (bufA.length !== bufB.length) return false;
+  return timingSafeEqual(bufA, bufB);
+}
+
 export function validateAdminAuth(request: Request): boolean {
   const apiKey = request.headers.get("x-admin-api-key");
-  const expectedKey = process.env.ADMIN_API_KEY;
-  if (!expectedKey || !apiKey) return false;
-  return apiKey === expectedKey;
+  return safeCompare(apiKey, process.env.ADMIN_API_KEY);
+}
+
+// Validates cron auth: accepts CRON_SECRET bearer token OR admin API key.
+export function validateCronAuth(request: Request): boolean {
+  const authHeader = request.headers.get("authorization");
+  const cronSecret = process.env.CRON_SECRET;
+  if (cronSecret && authHeader && safeCompare(authHeader, `Bearer ${cronSecret}`)) {
+    return true;
+  }
+  return validateAdminAuth(request);
 }

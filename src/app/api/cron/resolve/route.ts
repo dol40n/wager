@@ -3,6 +3,7 @@ import { prisma } from "@/lib/db";
 import { resolveWager, canonicalizeEvidence } from "@/lib/ai/resolver";
 import { hashEvidence } from "@/lib/utils";
 import { DISPUTE_WINDOW_SECONDS } from "@/lib/constants";
+import { validateCronAuth } from "@/lib/validators";
 
 const MAX_RESOLVE_ATTEMPTS = 3;
 const CONCURRENCY = 4;
@@ -107,12 +108,8 @@ async function resolveOne(bet: BetWithParties) {
 }
 
 export async function GET(request: Request) {
-  const authHeader = request.headers.get("authorization");
-  if (authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
-    const adminKey = request.headers.get("x-admin-api-key");
-    if (adminKey !== process.env.ADMIN_API_KEY) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
+  if (!validateCronAuth(request)) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
   try {

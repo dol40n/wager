@@ -2,14 +2,11 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { lamportsToSol } from "@/lib/utils";
 import { VIP_MIN_FINALIZED_BETS, VIP_MIN_VOLUME_SOL } from "@/lib/constants";
+import { validateCronAuth } from "@/lib/validators";
 
 export async function GET(request: Request) {
-  const authHeader = request.headers.get("authorization");
-  if (authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
-    const adminKey = request.headers.get("x-admin-api-key");
-    if (adminKey !== process.env.ADMIN_API_KEY) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
+  if (!validateCronAuth(request)) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
   try {
