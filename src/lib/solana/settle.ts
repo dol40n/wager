@@ -5,8 +5,8 @@ import {
   deriveBetPDA,
   deriveVaultPDA,
   getConnection,
-  getResolverKeypair,
 } from "./program";
+import { getResolverSigner } from "./signer";
 import {
   buildProposeResultTx,
   buildDisputeTx,
@@ -51,7 +51,7 @@ async function refreshStatus(connection: ReturnType<typeof getConnection>, betPD
 
 export async function settleOnChain(input: SettleInput, feeWalletKey: PublicKey): Promise<SettleResult> {
   const txSignatures: Record<string, string> = {};
-  const resolverKeypair = getResolverKeypair();
+  const signer = getResolverSigner();
   const connection = getConnection();
 
   const betIdHash = computeBetIdHash(input.betId);
@@ -82,17 +82,17 @@ export async function settleOnChain(input: SettleInput, feeWalletKey: PublicKey)
       : hashEvidence("[]");
 
     const proposeTx = await buildProposeResultTx({
-      resolverAuthority: resolverKeypair.publicKey, betPDA, proposedWinner: winnerKey, evidenceHash,
+      resolverAuthority: signer.publicKey, betPDA, proposedWinner: winnerKey, evidenceHash,
     });
-    txSignatures.propose_result = await signAndSendTx(proposeTx, [resolverKeypair]);
+    txSignatures.propose_result = await signAndSendTx(proposeTx, signer);
     statusByte = await refreshStatus(connection, betPDA);
     console.log(`[settle] After propose: status=${STATUS_NAMES[statusByte]}`);
   }
 
   // Step 2: ResultProposed → dispute_result → becomes Disputed
   if (statusByte === 2) {
-    const disputeTx = await buildDisputeTx({ disputer: resolverKeypair.publicKey, betPDA });
-    txSignatures.dispute_result = await signAndSendTx(disputeTx, [resolverKeypair]);
+    const disputeTx = await buildDisputeTx({ disputer: signer.publicKey, betPDA });
+    txSignatures.dispute_result = await signAndSendTx(disputeTx, signer);
     statusByte = await refreshStatus(connection, betPDA);
     console.log(`[settle] After dispute: status=${STATUS_NAMES[statusByte]}`);
   }
@@ -100,9 +100,9 @@ export async function settleOnChain(input: SettleInput, feeWalletKey: PublicKey)
   // Step 3: Disputed → admin_finalize_disputed → becomes Finalized
   if (statusByte === 3) {
     const adminTx = await buildAdminFinalizeTx({
-      resolverAuthority: resolverKeypair.publicKey, betPDA, vaultPDA, winner: winnerKey,
+      resolverAuthority: signer.publicKey, betPDA, vaultPDA, winner: winnerKey,
     });
-    txSignatures.admin_finalize = await signAndSendTx(adminTx, [resolverKeypair]);
+    txSignatures.admin_finalize = await signAndSendTx(adminTx, signer);
   }
 
   // Already finalized (idempotent)

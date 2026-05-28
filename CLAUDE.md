@@ -92,7 +92,14 @@ settleOnChain() handles ALL on-chain states (idempotent):
 
 - DB-only finalize/refund is DISABLED (HTTP 410)
 - DB status FINALIZED only AFTER on-chain vault verified empty
-- Resolver authority signs all on-chain TX from Vercel backend
+- Resolver authority signs all on-chain TX via TransactionSigner abstraction
+  (lib/solana/signer.ts). SIGNER_BACKEND=env (default, key in env var) or
+  =kms (HashiCorp Vault/Turnkey — Ed25519-capable; implement signRawEd25519).
+  On-chain admin_finalize requires winner == maker OR taker — a leaked key
+  cannot drain to an arbitrary address, only rig outcomes/skim fee.
+- Admin finalize-onchain rejects (409) if winner_side contradicts AI
+  proposedWinner unless override_ai_verdict:true
+- Admin/cron auth uses constant-time safeCompare (timing-attack safe)
 - Admin action logs stored with before/after status, evidence hash, payout
 - settleOnChain() used by both admin finalize and auto-finalize cron
 
