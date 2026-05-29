@@ -281,15 +281,13 @@ async function buildVersionedTx(
   return new VersionedTransaction(message);
 }
 
-import type { TransactionSigner } from "./signer";
-
 export async function signAndSendTx(
   tx: VersionedTransaction,
-  signer: TransactionSigner
+  signers: import("@solana/web3.js").Keypair[]
 ): Promise<string> {
-  const signed = await signer.signTransaction(tx);
+  tx.sign(signers);
   const connection = getConnection();
-  const sig = await connection.sendRawTransaction(signed.serialize(), {
+  const sig = await connection.sendRawTransaction(tx.serialize(), {
     skipPreflight: false,
     preflightCommitment: "confirmed",
   });
