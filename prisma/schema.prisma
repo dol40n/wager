@@ -87,6 +87,11 @@ model Bet {
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+
+  @@index([status, deadlineUtc])        // resolve cron
+  @@index([status, disputeDeadlineUtc]) // finalize cron
+  @@index([makerId, status])            // active-bets count on create
+  @@index([status, createdAt])          // dashboard / bets listing
 }
 
 model ResolutionEvidence {
