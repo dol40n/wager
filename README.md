@@ -1,197 +1,212 @@
-# Wager - AI-Powered P2P Bet Escrow on Solana
+# Wager — AI-Powered P2P Bet Escrow on Solana
 
-**WARNING: This is experimental devnet software. Do not use real funds.**
+> **⚠️ Experimental devnet software. Do not use real funds. Not mainnet-ready.**
 
-Universal AI-powered peer-to-peer wager escrow using Solana Blinks. Create a bet on any topic in natural language, AI normalizes conditions, funds are held in PDA escrow, and AI resolves outcomes with evidence-backed results.
+Universal AI-powered peer-to-peer wager escrow on Solana devnet. Users create bets in
+natural language, an AI normalizes them into a precise YES/NO condition, funds go into a
+PDA escrow, the counterparty accepts via Blink or wallet, an AI resolver determines the
+outcome with evidence, and an auto-finalize cron settles the on-chain payout.
+
+- **Live (devnet):** https://wager-smoky.vercel.app
+- **Program:** `7fQ9Dh4iNrp2mfjtBthqrmrcYZXhSaCVZcyXVuCs6hFN`
+- **Resolver authority:** `2K8jv4HT8Er7fSTEtJ3yAzqUJoQ6eLiRPYxYW9KTmECa`
+- **Status:** Private beta (devnet only)
 
 ## Architecture
 
 ```
-User → Next.js Frontend → API Routes → Prisma/PostgreSQL
-                                     → Anthropic AI (normalize + resolve)
-                                     → Solana Devnet (PDA escrow)
-                                     → Solana Actions/Blinks (taker acceptance)
+Frontend (Next.js) → API Routes → Prisma / PostgreSQL (Neon)
+                                 → Anthropic Claude (normalize · resolve · adversarial challenger)
+                                 → Tavily web search (evidence)
+                                 → Binance / CoinGecko (price snapshots)
+                                 → Solana devnet (PDA escrow)
+                                 → Solana Actions / Blinks (taker acceptance)
 ```
 
 ## Tech Stack
 
-- **Frontend**: Next.js 15, TypeScript, Tailwind CSS, shadcn/ui
-- **Backend**: Next.js API routes, Prisma ORM, PostgreSQL
-- **AI**: Anthropic Claude (normalize wagers + resolve outcomes)
-- **Blockchain**: Solana devnet, Anchor program, PDA escrow, Solana Actions/Blinks
+- **Frontend:** Next.js 16, TypeScript, Tailwind CSS, shadcn/ui, Solana wallet adapter (Phantom/Solflare)
+- **Backend:** Next.js API routes, Prisma ORM, PostgreSQL (Neon)
+- **AI:** Anthropic Claude — Sonnet for resolution, Haiku for adversarial verification
+- **Evidence:** Tavily web search (advanced depth), Binance/CoinGecko price snapshots
+- **Blockchain:** Solana devnet, Anchor 0.30.1 program, PDA escrow, Solana Actions/Blinks
+- **Hosting:** Vercel (5 scheduled crons)
+
+## Core Flow
+
+1. **Create** — describe a bet in natural language (`/create`)
+2. **Normalize** — AI converts it to a precise YES/NO condition; rejects ambiguous/unfalsifiable wagers
+3. **Fund** — maker deposits stake into the PDA escrow
+4. **Share** — copy the Blink URL to a counterparty
+5. **Accept** — taker deposits a matching stake (Blink or wallet)
+6. **Resolve** — after the deadline, the resolver gathers evidence and proposes a winner
+7. **Dispute window** — 24h for either party (or the resolver) to dispute
+8. **Finalize** — undisputed bets auto-settle on-chain; disputed ones go to admin review
+
+## Fees
+
+| Category | Stake | Fee |
+|----------|-------|-----|
+| Crypto | < 5 SOL / ≥ 5 SOL | 1% / 0.75% |
+| Non-crypto | < 0.25 / 0.25–0.99 / 1–4.99 / ≥ 5 SOL | 3% / 2% / 1% / 0.75% |
+| VIP | any | 0.5% flat |
+
+Fees are computed server-side (client values ignored). Non-crypto has a $0.20 USD floor.
+VIP is auto-promoted by volume (10+ finalized bets or 50+ SOL) via a weekly cron.
+
+## Resolution Pipeline
+
+```
+deterministic (crypto/sports API) → direct finalize (0.99 confidence)
+non-deterministic → AI resolve (Sonnet) → confidence:
+   < 0.80      → manual review
+   0.80–0.93   → adversarial challenge (Haiku) → disagrees → manual review
+                                                → agrees    → proceed
+   > 0.93      → proceed
+after dispute window → auto-finalize cron
+```
+
+The adversarial challenger uses a different model family (Haiku vs Sonnet) to reduce
+correlated failures and checks for wording ambiguity, edge cases, evidence gaps, and
+timeline attacks.
 
 ## Prerequisites
 
 - Node.js 20+
 - PostgreSQL database
-- Anthropic API key
-- Solana CLI + Anchor (for program deployment only)
-- Rust toolchain (for program compilation only)
+- Anthropic API key (and Tavily API key for web-search evidence)
+- Solana CLI + Anchor + Rust toolchain (only to build/deploy the on-chain program — see `TOOLCHAIN.md`)
 
 ## Quick Start
 
-### 1. Clone and install
-
 ```bash
-cd wager
 npm install
+cp .env.example .env       # fill in the values below
+npx prisma db push         # create the schema
+npm run dev                # http://localhost:3000
 ```
 
-### 2. Configure environment
+### Environment variables
+
+```
+DATABASE_URL, ANTHROPIC_API_KEY, TAVILY_API_KEY,
+WAGER_PROGRAM_ID, RESOLVER_AUTHORITY_PRIVATE_KEY, FEE_WALLET,
+ADMIN_API_KEY, CRON_SECRET,
+NEXT_PUBLIC_SOLANA_RPC_URL, NEXT_PUBLIC_APP_URL, NEXT_PUBLIC_BUG_REPORT_URL
+```
+
+## Scripts
 
 ```bash
-cp .env.example .env
+npm run dev          # dev server
+npm run build        # production build (~26 routes)
+npm test             # vitest suite (296 tests, incl. a bankrun on-chain test)
+npm run typecheck    # tsc --noEmit
+npm run lint         # eslint
+npm run generate:idl # regenerate IDL from source (anchor build IDL is broken on 0.30.1)
+npm run db:studio    # Prisma Studio
 ```
 
-Edit `.env` with your values:
-- `DATABASE_URL` — PostgreSQL connection string
-- `ANTHROPIC_API_KEY` — your Anthropic API key
-- `ADMIN_API_KEY` — any secret string for admin endpoints
-- `WAGER_PROGRAM_ID` — deployed program ID (after step 4)
-- `RESOLVER_AUTHORITY_PRIVATE_KEY` — base58 keypair for the resolver
-- `FEE_WALLET` — pubkey that receives fees
-
-### 3. Set up database
+### Building & deploying the Solana program
 
 ```bash
-npx prisma db push
+bash scripts/pin-deps.sh
+cargo-build-sbf --manifest-path programs/wager_escrow/Cargo.toml --sbf-out-dir target/deploy
+solana program deploy target/deploy/wager_escrow.so \
+  --program-id target/deploy/wager_escrow-keypair.json --url devnet
 ```
 
-### 4. Deploy Solana program (requires Solana toolchain)
+See `TOOLCHAIN.md` for why the IDL is generated deterministically.
 
-```bash
-# Install Solana CLI and Anchor if not present
-# See: https://docs.solana.com/cli/install
-# See: https://www.anchor-lang.com/docs/installation
+## On-Chain Program (9 instructions)
 
-solana config set --url devnet
-solana airdrop 5
+| Instruction | Purpose |
+|-------------|---------|
+| `initialize_bet` | Create the bet PDA |
+| `fund_maker` | Maker deposits stake into the vault PDA |
+| `accept_bet` | Taker deposits a matching stake |
+| `cancel_unaccepted_bet` | Maker cancels an unfilled bet |
+| `propose_result` | Resolver proposes a winner + evidence hash |
+| `dispute_result` | Maker, taker, or resolver disputes within the window |
+| `finalize_result_after_dispute_window` | Auto-finalize undisputed bets |
+| `admin_finalize_disputed` | Admin settles a disputed bet |
+| `refund_if_expired_or_unresolved` | 50/50 (or full) refund after a 7-day timeout |
 
-cd programs/wager_escrow
-anchor build
-anchor deploy --provider.cluster devnet
+Tiered fees, 24h dispute window, 10 SOL max stake, checked arithmetic, PDA `invoke_signed`
+transfers. Settlement is on-chain first; the DB is marked `FINALIZED` only after the vault
+is verified empty. `settleOnChain()` is the single idempotent path for all transitions.
 
-# Copy the program ID to .env as WAGER_PROGRAM_ID
-```
-
-### 5. Run the app
-
-```bash
-npm run dev
-```
-
-Visit `http://localhost:3000`.
-
-## Core Flow
-
-1. **Create wager** (`/create`): Describe bet in natural language
-2. **AI normalizes**: Converts to precise YES/NO condition with resolution criteria
-3. **Review & confirm**: User reviews normalized condition, ambiguity warnings
-4. **Fund escrow**: Maker deposits SOL into PDA escrow
-5. **Share Blink**: Copy the Blink URL and send to counterparty
-6. **Taker accepts**: Taker opens Blink, deposits matching SOL
-7. **Deadline passes**: AI resolver gathers evidence
-8. **Result proposed**: AI proposes winner with evidence hash on-chain
-9. **Dispute window**: 24 hours for either party to dispute
-10. **Finalize**: Payout or admin review if disputed
-
-## API Routes
+## Key API Routes
 
 | Method | Route | Description |
 |--------|-------|-------------|
-| POST | `/api/bets/normalize` | AI normalize wager condition |
-| POST | `/api/bets/create` | Create bet in database |
-| GET | `/api/bets` | List bets (filter by status, maker) |
-| GET | `/api/bets/:id` | Get bet details |
-| POST | `/api/bets/:id/fund-maker/tx` | Build fund maker transaction |
-| GET | `/api/actions/bet/:id` | Blink GET action metadata |
-| POST | `/api/actions/bet/:id/accept` | Blink POST accept transaction |
+| POST | `/api/bets/normalize` | AI normalize (rate limited) |
+| POST | `/api/bets/create` | Create bet + price snapshot + fee calc (rate limited) |
+| GET  | `/api/bets` · `/api/bets/:id` | List / detail |
+| POST | `/api/bets/:id/fund-maker/tx` | Build init+fund transaction |
+| POST | `/api/bets/:id/sync` | Sync DB from on-chain state |
 | POST | `/api/bets/:id/dispute` | File a dispute |
-| POST | `/api/resolver/run` | Run resolver on all eligible bets |
-| POST | `/api/resolver/run/:id` | Run resolver on specific bet |
-| GET | `/api/resolver/evidence/:id` | Get resolution evidence |
-| POST | `/api/admin/bets/:id/finalize` | Admin finalize (YES/NO) |
-| POST | `/api/admin/bets/:id/refund` | Admin refund |
+| GET/POST | `/api/actions/bet/:id[/accept]` | Blink metadata / accept transaction |
+| POST | `/api/admin/bets/:id/finalize-onchain` | Full on-chain settlement |
+| POST | `/api/admin/bets/:id/refund-onchain` | Refund |
+| POST | `/api/resolver/run[/:id]` | Run the resolver (admin) |
+| GET  | `/api/health` | DB + RPC + resolver-key check |
 
-## Solana Program Instructions
+> DB-only `finalize`/`refund` are intentionally disabled (HTTP 410) — settlement must go on-chain first.
 
-1. `initialize_bet` — Create bet PDA with parameters
-2. `fund_maker` — Maker deposits stake into vault PDA
-3. `accept_bet` — Taker deposits matching stake
-4. `cancel_unaccepted_bet` — Maker cancels unfilled bet
-5. `propose_result` — Resolver proposes winner with evidence hash
-6. `dispute_result` — Maker or taker disputes within window
-7. `finalize_result_after_dispute_window` — Auto-finalize after dispute window
-8. `admin_finalize_disputed` — Admin resolves disputed bets
-9. `refund_if_expired_or_unresolved` — Refund after timeout
+## Cron Jobs (Vercel)
+
+| Schedule (UTC) | Route | Purpose |
+|----------------|-------|---------|
+| `0 0 * * *` | `/api/cron/resolve` | AI-resolve bets past their deadline (3 retries) |
+| `30 0 * * *` | `/api/cron/reconcile` | Reconcile DB ↔ chain for non-terminal bets |
+| `0 1 * * *` | `/api/cron/finalize` | Auto-finalize undisputed bets past the dispute window |
+| `0 2 * * *` | `/api/cron/cleanup` | Purge expired rate-limit counters |
+| `0 3 * * 0` | `/api/cron/vip-check` | Auto-promote VIP wallets by volume |
 
 ## Safety Features
 
-- **Max stake**: 10 SOL (devnet limit)
-- **PDA escrow**: Non-custodial, funds held by program
-- **Dispute window**: 24 hours before finalization
-- **Refund path**: 7-day timeout auto-refund
-- **Evidence hashing**: SHA-256 hash stored on-chain
-- **Manual review**: Low-confidence or conflicting results flagged
-- **Wager rejection**: Subjective, illegal, or unverifiable bets rejected
-- **Ambiguity warnings**: Score > 0.25 requires explicit confirmation
-- **Admin auth**: API key required for admin endpoints
-- **Zod validation**: All inputs validated at system boundaries
-- **Devnet only**: No mainnet configuration
-
-## Development
-
-```bash
-npm run dev          # Start dev server
-npm run build        # Production build
-npm run test         # Run tests
-npm run typecheck    # Type check
-npm run lint         # ESLint
-npm run db:studio    # Prisma Studio (DB GUI)
-```
+- Non-custodial PDA escrow; vault transfers via `invoke_signed`
+- 24h dispute window + 7-day refund timeout
+- SHA-256 evidence hash stored on-chain (canonicalized before hashing)
+- Low-confidence / conflicting results flagged for manual review
+- Adversarial AI challenger on borderline confidence
+- Atomic fixed-window rate limiting (DB-backed)
+- Server-side fee calculation; Zod validation at all boundaries
+- Timing-safe admin auth; admin actions logged with before/after status
+- Ambiguous, unfalsifiable, illegal, or unverifiable wagers rejected at normalize
 
 ## Project Structure
 
 ```
 src/
 ├── app/
-│   ├── api/              # API route handlers
-│   ├── admin/            # Admin review page
-│   ├── bet/[id]/         # Bet detail page
-│   ├── create/           # Create bet page
-│   ├── dashboard/        # All bets listing
-│   └── actions.json/     # Solana Actions manifest
-├── components/           # React components + shadcn/ui
+│   ├── api/              # route handlers (bets, actions, admin, resolver, cron, health)
+│   ├── admin/ bet/[id]/ create/ dashboard/
+├── components/           # React components (bet-detail split into info/evidence) + shadcn/ui
 ├── lib/
-│   ├── ai/               # AI normalize + resolver modules
-│   ├── solana/            # Program interaction, PDA derivation, tx builders
-│   ├── db.ts             # Prisma client
-│   ├── constants.ts      # Config constants
-│   ├── validators.ts     # Zod schemas
-│   └── utils.ts          # Utilities
-└── types/                # TypeScript type definitions
-
-programs/
-└── wager_escrow/         # Anchor Solana program (Rust)
-
-tests/                    # Vitest test suite
-prisma/                   # Prisma schema
+│   ├── ai/               # normalize + resolver (+ adversarial challenger)
+│   ├── solana/           # program interaction, PDA derivation, tx builders,
+│   │                     #   account-layout (shared parser), settle (idempotent)
+│   ├── rate-limit.ts  fees.ts  price-snapshot.ts  validators.ts  utils.ts  db.ts
+programs/wager_escrow/    # Anchor Solana program (Rust)
+tests/                    # vitest suite (incl. tests/anchor/*.test.ts via bankrun)
+prisma/                   # schema
 ```
 
-## Assumptions
+## Documentation
 
-- Resolver authority is a backend-controlled keypair (not a DAO/oracle)
-- Evidence is gathered by AI at resolution time, not streamed
-- Admin auth uses a simple API key (placeholder for proper auth)
-- On-chain finalization and DB status are updated separately (not atomic)
-- Blink taker acceptance triggers on-chain accept; DB is updated via webhook/polling (not implemented yet — manual sync for MVP)
-- Fee is 2% (200 bps), configurable per bet
+| File | Topic |
+|------|-------|
+| `CLAUDE.md` | Architecture & conventions (source of truth) |
+| `SECURITY_REVIEW.md` | Threat model, mainnet blockers |
+| `TOOLCHAIN.md` | Deterministic IDL, edition2024 workaround |
+| `HOSTED_BETA_REPORT.md` | Devnet tx signatures, settlement proof |
+| `BETA_KNOWN_LIMITATIONS.md` | Known limitations |
+| `PRIVATE_BETA.md` · `DEMO_SCRIPT.md` | Tester instructions, demo walkthrough |
 
-## Known Limitations (MVP)
+## Mainnet Blockers
 
-- No wallet adapter integration in frontend (pubkeys entered manually)
-- No on-chain event listeners / webhooks for status sync
-- No rate limiting implementation (placeholder noted)
-- Admin auth is a simple API key, not proper session auth
-- Resolver uses AI knowledge, not live API calls to resolution sources
-- No mainnet support — devnet only
+Independent Anchor audit · multi-sig/oracle resolver (replace single authority) ·
+admin authentication with per-user accounts/MFA · formal verification or fuzzing ·
+legal review. See `SECURITY_REVIEW.md` for the full list.
