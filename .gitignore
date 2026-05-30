@@ -60,3 +60,8 @@ Cargo.lock is committed for reproducible builds
 .mcp.json
 
 .env*
+
+# private working docs (sale strategy, etc.) — never transfer to a buyer
+*.private.md
+# sale / data-room materials — shared deliberately, not bundled with the code
+dataroom/
