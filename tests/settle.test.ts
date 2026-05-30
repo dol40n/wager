@@ -1,5 +1,7 @@
-import { describe, it, expect } from "vitest";
-import { readOnChainStatus } from "@/lib/solana/settle";
+import { describe, it, expect, vi } from "vitest";
+import { Keypair, PublicKey } from "@solana/web3.js";
+import { readOnChainStatus, settleOnChain } from "@/lib/solana/settle";
+import * as program from "@/lib/solana/program";
 
 function buildMockAccountData(opts: {
   takerSome?: boolean;
@@ -99,5 +101,49 @@ describe("readOnChainStatus", () => {
     expect(readOnChainStatus(dataSome)).toBe(7);
     // But the buffers are different lengths
     expect(dataSome.length - dataNone.length).toBe(32);
+  });
+});
+
+describe("settleOnChain idempotency", () => {
+  const feeWallet = Keypair.generate().publicKey;
+  const winner = Keypair.generate().publicKey;
+
+  function mockConnection(opts: { statusByte: number; vaultBalance: number }) {
+    return {
+      getAccountInfo: vi.fn().mockResolvedValue({
+        data: buildMockAccountData({ takerSome: true, allowedTakerSome: false, statusByte: opts.statusByte }),
+      }),
+      getBalance: vi.fn().mockResolvedValue(opts.vaultBalance),
+    };
+  }
+
+  it("returns idempotent success for an already-finalized bet (status=4, vault drained)", async () => {
+    const conn = mockConnection({ statusByte: 4, vaultBalance: 0 });
+    vi.spyOn(program, "getConnection").mockReturnValue(conn as never);
+    vi.spyOn(program, "getResolverKeypair").mockReturnValue(Keypair.generate());
+
+    const result = await settleOnChain(
+      { betId: "test-finalized", winnerPubkey: winner.toBase58(), evidenceHash: null },
+      feeWallet
+    );
+
+    expect(result.success).toBe(true);
+    expect(result.error).toBe("Already finalized");
+    // Must short-circuit before attempting any settlement transaction.
+    expect(Object.keys(result.txSignatures)).toHaveLength(0);
+  });
+
+  it("returns failure for a non-finalized bet with an empty vault (status=1, vault=0)", async () => {
+    const conn = mockConnection({ statusByte: 1, vaultBalance: 0 });
+    vi.spyOn(program, "getConnection").mockReturnValue(conn as never);
+    vi.spyOn(program, "getResolverKeypair").mockReturnValue(Keypair.generate());
+
+    const result = await settleOnChain(
+      { betId: "test-empty", winnerPubkey: winner.toBase58(), evidenceHash: null },
+      feeWallet
+    );
+
+    expect(result.success).toBe(false);
+    expect(result.error).toBe("Vault is empty");
   });
 });

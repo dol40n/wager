@@ -58,7 +58,23 @@ export async function settleOnChain(input: SettleInput, feeWalletKey: PublicKey)
   const [betPDA] = deriveBetPDA(betIdHash);
   const [vaultPDA] = deriveVaultPDA(betPDA);
 
+  // Read the on-chain account + status FIRST. An already-finalized bet has a
+  // drained vault (balance 0), so the "vault empty" guard below must not run
+  // before we recognize FINALIZED as an idempotent no-op (safe to retry).
+  const accountInfo = await connection.getAccountInfo(betPDA);
+  if (!accountInfo) {
+    return { success: false, txSignatures, vaultBefore: 0, vaultAfter: 0, winnerReceived: 0, feeReceived: 0, error: "Bet PDA not found on-chain" };
+  }
+
+  let statusByte = readOnChainStatus(accountInfo.data);
   const vaultBefore = await connection.getBalance(vaultPDA);
+  console.log(`[settle] Bet ${input.betId}: on-chain=${STATUS_NAMES[statusByte] || "Unknown"}, vault=${vaultBefore}`);
+
+  // Already finalized — idempotent success (vault already drained on the prior run).
+  if (statusByte === 4) {
+    return { success: true, txSignatures, vaultBefore, vaultAfter: vaultBefore, winnerReceived: 0, feeReceived: 0, error: "Already finalized" };
+  }
+
   if (vaultBefore === 0) {
     return { success: false, txSignatures, vaultBefore: 0, vaultAfter: 0, winnerReceived: 0, feeReceived: 0, error: "Vault is empty" };
   }
@@ -66,14 +82,6 @@ export async function settleOnChain(input: SettleInput, feeWalletKey: PublicKey)
   const winnerKey = new PublicKey(input.winnerPubkey);
   const winnerBalBefore = await connection.getBalance(winnerKey);
   const feeBalBefore = await connection.getBalance(feeWalletKey);
-
-  const accountInfo = await connection.getAccountInfo(betPDA);
-  if (!accountInfo) {
-    return { success: false, txSignatures, vaultBefore, vaultAfter: vaultBefore, winnerReceived: 0, feeReceived: 0, error: "Bet PDA not found on-chain" };
-  }
-
-  let statusByte = readOnChainStatus(accountInfo.data);
-  console.log(`[settle] Bet ${input.betId}: on-chain=${STATUS_NAMES[statusByte] || "Unknown"}, vault=${vaultBefore}`);
 
   // Step 1: Accepted → propose_result → becomes ResultProposed
   if (statusByte === 1) {
@@ -105,12 +113,7 @@ export async function settleOnChain(input: SettleInput, feeWalletKey: PublicKey)
     txSignatures.admin_finalize = await signAndSendTx(adminTx, [resolverKeypair]);
   }
 
-  // Already finalized (idempotent)
-  else if (statusByte === 4) {
-    return { success: true, txSignatures, vaultBefore, vaultAfter: 0, winnerReceived: 0, feeReceived: 0, error: "Already finalized" };
-  }
-
-  // Unexpected status after stepping through
+  // Unexpected status after stepping through (Open/Cancelled/Refunded)
   else if (statusByte !== 3) {
     return { success: false, txSignatures, vaultBefore, vaultAfter: vaultBefore, winnerReceived: 0, feeReceived: 0, error: `Unexpected on-chain status: ${STATUS_NAMES[statusByte] || "Unknown"} (byte=${statusByte})` };
   }

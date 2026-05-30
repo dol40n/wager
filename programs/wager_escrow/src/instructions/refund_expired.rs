@@ -56,6 +56,19 @@ pub fn handler(ctx: Context<RefundExpired>) -> Result<()> {
     ];
 
     if bet.taker.is_some() {
+        // A bet with a taker MUST be refunded 50/50. The taker account is
+        // required and must match — otherwise the maker could claim the
+        // taker's half by simply omitting the taker account.
+        let taker_account = ctx
+            .accounts
+            .taker
+            .as_ref()
+            .ok_or(WagerError::Unauthorized)?;
+        require!(
+            Some(taker_account.key()) == bet.taker,
+            WagerError::Unauthorized
+        );
+
         let half = vault_balance / 2;
         let remainder = vault_balance - half;
 
@@ -71,35 +84,17 @@ pub fn handler(ctx: Context<RefundExpired>) -> Result<()> {
             half,
         )?;
 
-        if let Some(taker_account) = &ctx.accounts.taker {
-            require!(
-                Some(taker_account.key()) == bet.taker,
-                WagerError::Unauthorized
-            );
-            system_program::transfer(
-                CpiContext::new_with_signer(
-                    ctx.accounts.system_program.to_account_info(),
-                    system_program::Transfer {
-                        from: ctx.accounts.vault.to_account_info(),
-                        to: taker_account.to_account_info(),
-                    },
-                    &[seeds],
-                ),
-                remainder,
-            )?;
-        } else {
-            system_program::transfer(
-                CpiContext::new_with_signer(
-                    ctx.accounts.system_program.to_account_info(),
-                    system_program::Transfer {
-                        from: ctx.accounts.vault.to_account_info(),
-                        to: ctx.accounts.maker.to_account_info(),
-                    },
-                    &[seeds],
-                ),
-                remainder,
-            )?;
-        }
+        system_program::transfer(
+            CpiContext::new_with_signer(
+                ctx.accounts.system_program.to_account_info(),
+                system_program::Transfer {
+                    from: ctx.accounts.vault.to_account_info(),
+                    to: taker_account.to_account_info(),
+                },
+                &[seeds],
+            ),
+            remainder,
+        )?;
     } else {
         system_program::transfer(
             CpiContext::new_with_signer(
