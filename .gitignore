@@ -65,3 +65,4 @@ Cargo.lock is committed for reproducible builds
 *.private.md
 # sale / data-room materials — shared deliberately, not bundled with the code
 dataroom/
+.playwright-mcp/
