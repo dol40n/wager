@@ -166,7 +166,6 @@ NEXT_PUBLIC_BUG_REPORT_URL
 - TOOLCHAIN.md — why deterministic IDL, edition2024 workaround
 - HOSTED_BETA_REPORT.md — devnet tx signatures, settlement proof
 - SECURITY_REVIEW.md — threat model, mainnet blockers
-- PRIVATE_BETA.md — tester instructions
 - DEMO_SCRIPT.md — step-by-step demo
 - BETA_KNOWN_LIMITATIONS.md — known limitations
 

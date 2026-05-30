@@ -203,7 +203,7 @@ prisma/                   # schema
 | `TOOLCHAIN.md` | Deterministic IDL, edition2024 workaround |
 | `HOSTED_BETA_REPORT.md` | Devnet tx signatures, settlement proof |
 | `BETA_KNOWN_LIMITATIONS.md` | Known limitations |
-| `PRIVATE_BETA.md` · `DEMO_SCRIPT.md` | Tester instructions, demo walkthrough |
+| `DEMO_SCRIPT.md` | Demo walkthrough |
 
 ## Mainnet Blockers
 
