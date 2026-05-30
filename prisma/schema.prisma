@@ -133,12 +133,27 @@ model VipWallet {
   updatedAt      DateTime @updatedAt
 }
 
+// Deprecated: replaced by RateLimitCounter (atomic fixed-window). Kept in the
+// schema so `prisma db push` in CI doesn't drop the table (which would need a
+// data-loss flag). No longer written to; cleanup cron purges residual rows.
 model RateLimitEntry {
   id        String   @id @default(cuid())
   key       String
   createdAt DateTime @default(now())
 
   @@index([key, createdAt])
+}
+
+// Atomic fixed-window rate limit counter. One row per (key, window bucket); the
+// count is bumped via a single INSERT ... ON CONFLICT DO UPDATE statement, which
+// is race-free under concurrent serverless requests.
+model RateLimitCounter {
+  key         String
+  windowStart DateTime
+  count       Int      @default(0)
+
+  @@id([key, windowStart])
+  @@index([windowStart])
 }
 
 model AdminActionLog {
