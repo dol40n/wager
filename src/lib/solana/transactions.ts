@@ -1,4 +1,5 @@
 import {
+  ComputeBudgetProgram,
   PublicKey,
   SystemProgram,
   TransactionInstruction,
@@ -8,6 +9,10 @@ import {
 import { createHash } from "crypto";
 import { PROGRAM_ID, FEE_WALLET } from "../constants";
 import { getConnection } from "./program";
+
+// Priority fee (micro-lamports per CU) for resolver-signed settlement TXs so the
+// finalize/resolve crons are not dropped under load. Modest; devnet only.
+const RESOLVER_PRIORITY_FEE = 10_000;
 
 function anchorDiscriminator(ixName: string): Buffer {
   const preimage = `global:${ixName}`;
@@ -151,7 +156,7 @@ export async function buildProposeResultTx(params: {
     data,
   });
 
-  return buildVersionedTx(params.resolverAuthority, [ix]);
+  return buildVersionedTx(params.resolverAuthority, [ix], { priorityMicroLamports: RESOLVER_PRIORITY_FEE });
 }
 
 export async function buildDisputeTx(params: {
@@ -167,7 +172,7 @@ export async function buildDisputeTx(params: {
     data: encodeNoArgs("dispute_result"),
   });
 
-  return buildVersionedTx(params.disputer, [ix]);
+  return buildVersionedTx(params.disputer, [ix], { priorityMicroLamports: RESOLVER_PRIORITY_FEE });
 }
 
 export async function buildFinalizeAfterDisputeTx(params: {
@@ -214,7 +219,7 @@ export async function buildAdminFinalizeTx(params: {
     data,
   });
 
-  return buildVersionedTx(params.resolverAuthority, [ix]);
+  return buildVersionedTx(params.resolverAuthority, [ix], { priorityMicroLamports: RESOLVER_PRIORITY_FEE });
 }
 
 export async function buildInitializeAndFundTx(params: {
@@ -267,30 +272,80 @@ export async function buildInitializeAndFundTx(params: {
 
 async function buildVersionedTx(
   payer: PublicKey,
-  instructions: TransactionInstruction[]
+  instructions: TransactionInstruction[],
+  opts?: { priorityMicroLamports?: number }
 ): Promise<VersionedTransaction> {
   const connection = getConnection();
   const { blockhash } = await connection.getLatestBlockhash("confirmed");
 
+  // Backend-signed TXs (resolver settlement) attach a priority fee so they are
+  // not dropped when the network is busy — this is what the finalize/resolve
+  // crons rely on. User/Blink TXs omit it to keep the signed fee predictable.
+  const finalIxs =
+    opts?.priorityMicroLamports && opts.priorityMicroLamports > 0
+      ? [
+          ComputeBudgetProgram.setComputeUnitPrice({
+            microLamports: opts.priorityMicroLamports,
+          }),
+          ...instructions,
+        ]
+      : instructions;
+
   const message = new TransactionMessage({
     payerKey: payer,
     recentBlockhash: blockhash,
-    instructions,
+    instructions: finalIxs,
   }).compileToV0Message();
 
   return new VersionedTransaction(message);
 }
 
+function isExpiredBlockhashError(err: unknown): boolean {
+  const msg = String(err instanceof Error ? err.message : err).toLowerCase();
+  return msg.includes("block height exceeded") || msg.includes("blockhash not found");
+}
+
 export async function signAndSendTx(
   tx: VersionedTransaction,
-  signers: import("@solana/web3.js").Keypair[]
+  signers: import("@solana/web3.js").Keypair[],
+  opts?: { maxRetries?: number }
 ): Promise<string> {
   tx.sign(signers);
   const connection = getConnection();
-  const sig = await connection.sendRawTransaction(tx.serialize(), {
-    skipPreflight: false,
-    preflightCommitment: "confirmed",
-  });
-  await connection.confirmTransaction(sig, "confirmed");
-  return sig;
+  const raw = tx.serialize();
+  const blockhash = tx.message.recentBlockhash;
+  // A blockhash is valid for ~150 slots; getBlockHeight + 150 bounds the wait
+  // so confirmTransaction returns instead of hanging on the deprecated form.
+  const lastValidBlockHeight = (await connection.getBlockHeight("confirmed")) + 150;
+  const maxRetries = opts?.maxRetries ?? 3;
+
+  let lastErr: unknown;
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    try {
+      // Re-sending the same serialized TX is safe: identical signature, so it
+      // dedupes on-chain rather than double-spending.
+      const sig = await connection.sendRawTransaction(raw, {
+        skipPreflight: false,
+        preflightCommitment: "confirmed",
+        maxRetries: 5,
+      });
+      const result = await connection.confirmTransaction(
+        { signature: sig, blockhash, lastValidBlockHeight },
+        "confirmed"
+      );
+      if (result.value.err) {
+        throw new Error(`TX ${sig} failed on-chain: ${JSON.stringify(result.value.err)}`);
+      }
+      return sig;
+    } catch (err) {
+      lastErr = err;
+      // Once the blockhash is expired the TX can never land — fail fast so the
+      // caller (settle/cron) retries with a freshly built TX.
+      if (isExpiredBlockhashError(err)) throw err;
+      if (attempt < maxRetries) {
+        await new Promise((r) => setTimeout(r, 500 * attempt));
+      }
+    }
+  }
+  throw lastErr;
 }
