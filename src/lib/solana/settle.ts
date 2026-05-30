@@ -13,6 +13,10 @@ import {
   buildAdminFinalizeTx,
   signAndSendTx,
 } from "./transactions";
+import { BET_STATUS_NAMES, readBetStatus } from "./account-layout";
+
+// Re-exported for backward compatibility (tests + existing callers).
+export { readBetStatus as readOnChainStatus } from "./account-layout";
 
 export interface SettleInput {
   betId: string;
@@ -30,23 +34,12 @@ export interface SettleResult {
   error?: string;
 }
 
-const STATUS_NAMES = ["Open", "Accepted", "ResultProposed", "Disputed", "Finalized", "Cancelled", "Refunded"];
-
-export function readOnChainStatus(data: Buffer): number {
-  let offset = 8 + 32 + 32; // discriminator + bet_id_hash + maker
-  const takerFlag = data[offset]; offset += takerFlag === 1 ? 33 : 1;
-  const allowedFlag = data[offset]; offset += allowedFlag === 1 ? 33 : 1;
-  offset += 1; // maker_side
-  offset += 8; // stake_lamports
-  offset += 8; // deadline_ts
-  offset += 8; // dispute_deadline_ts
-  return data[offset];
-}
+const STATUS_NAMES = BET_STATUS_NAMES;
 
 async function refreshStatus(connection: ReturnType<typeof getConnection>, betPDA: PublicKey): Promise<number> {
   const info = await connection.getAccountInfo(betPDA);
   if (!info) throw new Error("Bet PDA disappeared during settlement");
-  return readOnChainStatus(info.data);
+  return readBetStatus(info.data);
 }
 
 export async function settleOnChain(input: SettleInput, feeWalletKey: PublicKey): Promise<SettleResult> {
@@ -66,7 +59,7 @@ export async function settleOnChain(input: SettleInput, feeWalletKey: PublicKey)
     return { success: false, txSignatures, vaultBefore: 0, vaultAfter: 0, winnerReceived: 0, feeReceived: 0, error: "Bet PDA not found on-chain" };
   }
 
-  let statusByte = readOnChainStatus(accountInfo.data);
+  let statusByte = readBetStatus(accountInfo.data);
   const vaultBefore = await connection.getBalance(vaultPDA);
   console.log(`[settle] Bet ${input.betId}: on-chain=${STATUS_NAMES[statusByte] || "Unknown"}, vault=${vaultBefore}`);
 

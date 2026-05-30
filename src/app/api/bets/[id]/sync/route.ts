@@ -7,6 +7,7 @@ import {
   deriveBetPDA,
   getConnection,
 } from "@/lib/solana/program";
+import { parseBetAccount, BET_STATUS_DB } from "@/lib/solana/account-layout";
 import { PROGRAM_ID } from "@/lib/constants";
 
 export async function POST(
@@ -74,36 +75,17 @@ export async function POST(
       // Read on-chain account to detect status + taker
       const accountInfo = await connection.getAccountInfo(betPDA);
       if (accountInfo && accountInfo.data.length > 100) {
-        const data = accountInfo.data;
-        let offset = 8 + 32 + 32; // disc + hash + maker
-        const takerFlag = data[offset];
-        let takerPubkey: string | null = null;
-        if (takerFlag === 1) {
-          takerPubkey = new PublicKey(data.subarray(offset + 1, offset + 33)).toBase58();
-        }
-        offset += takerFlag === 1 ? 33 : 1; // taker
-        const allowedFlag = data[offset];
-        offset += allowedFlag === 1 ? 33 : 1; // allowed_taker
-        offset += 1; // maker_side
-        offset += 8; // stake
-        offset += 8; // deadline
-        offset += 8; // dispute_deadline
-        const statusByte = data[offset];
-
-        const STATUS_MAP: Record<number, string> = {
-          0: "OPEN", 1: "ACCEPTED", 2: "RESULT_PROPOSED",
-          3: "DISPUTED", 4: "FINALIZED", 5: "CANCELLED", 6: "REFUNDED",
-        };
-        const chainStatus = STATUS_MAP[statusByte];
+        const parsed = parseBetAccount(accountInfo.data);
+        const chainStatus = BET_STATUS_DB[parsed.status];
 
         if (chainStatus && chainStatus !== bet.status) {
           updates.status = chainStatus;
         }
 
-        if (takerPubkey && !bet.takerId) {
-          let takerWallet = await prisma.userWallet.findUnique({ where: { pubkey: takerPubkey } });
+        if (parsed.taker && !bet.takerId) {
+          let takerWallet = await prisma.userWallet.findUnique({ where: { pubkey: parsed.taker } });
           if (!takerWallet) {
-            takerWallet = await prisma.userWallet.create({ data: { pubkey: takerPubkey } });
+            takerWallet = await prisma.userWallet.create({ data: { pubkey: parsed.taker } });
           }
           updates.takerId = takerWallet.id;
         }
