@@ -138,7 +138,7 @@ All crons accept both `Authorization: Bearer CRON_SECRET` and `x-admin-api-key` 
 
 ```bash
 npm run typecheck    # 0 errors
-npm test             # 279 tests (vitest)
+npm test             # 289 tests (vitest, incl. bankrun on-chain refund test)
 npm run build        # ~26 routes
 npm run generate:idl # IDL from source (anchor build IDL is broken)
 
