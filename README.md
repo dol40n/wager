@@ -12,6 +12,16 @@ outcome with evidence, and an auto-finalize cron settles the on-chain payout.
 - **Resolver authority:** `2K8jv4HT8Er7fSTEtJ3yAzqUJoQ6eLiRPYxYW9KTmECa`
 - **Status:** Private beta (devnet only)
 
+## Screenshots
+
+| Create a bet in plain English → AI normalizes it into a precise, sourced market |
+|:--:|
+| ![AI normalization](docs/screenshots/ai-normalization.png) |
+
+| Landing | Resolved bet — evidence + on-chain hash |
+|:--:|:--:|
+| ![Home](docs/screenshots/home.png) | ![Resolved bet with on-chain proof](docs/screenshots/resolved-onchain.png) |
+
 ## Architecture
 
 ```
