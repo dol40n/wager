@@ -8,6 +8,10 @@
       "schedule": "0 0 * * *"
     },
     {
+      "path": "/api/cron/reconcile",
+      "schedule": "30 0 * * *"
+    },
+    {
       "path": "/api/cron/finalize",
       "schedule": "0 1 * * *"
     },
