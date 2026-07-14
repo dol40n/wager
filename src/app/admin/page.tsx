@@ -1,12 +1,12 @@
 "use client";
 
-import { useEffect, useState, useMemo } from "react";
+import { useState, useMemo } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import { AlertTriangle, Loader2, Shield, RefreshCw } from "lucide-react";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Loader2, Shield, RefreshCw } from "lucide-react";
 import { lamportsToSol, statusLabel, shortenAddress } from "@/lib/utils";
 
 type Filter = "all" | "review" | "disputed" | "proposed" | "accepted";
@@ -76,9 +76,10 @@ export default function AdminPage() {
     }
   }
 
-  useEffect(() => {
-    if (authenticated) fetchBets();
-  }, [authenticated]);
+  function handleAuthenticate() {
+    setAuthenticated(true);
+    void fetchBets();
+  }
 
   function showMsg(text: string, type: "success" | "error" | "info" = "info") {
     setMessage({ text, type });
@@ -135,7 +136,9 @@ export default function AdminPage() {
   }
 
   async function handleRefund(betId: string) {
-    if (!window.confirm(`Refund bet ${betId}?\n\nBoth parties get their stake back. Irreversible.`)) return;
+    if (!window.confirm(
+      `Mark bet ${betId} REFUNDED in PostgreSQL?\n\nThis does not submit an on-chain refund or move vault funds. A separate on-chain refund is still required. Irreversible.`
+    )) return;
 
     setActionLoading(betId);
     setMessage(null);
@@ -147,7 +150,7 @@ export default function AdminPage() {
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error);
-      showMsg(`Refunded ${betId}. ${data.on_chain_note || ""}`, "success");
+      showMsg(`Marked ${betId} REFUNDED in PostgreSQL. ${data.on_chain_note || ""}`, "success");
       fetchBets();
     } catch (err) {
       showMsg(err instanceof Error ? err.message : "Failed", "error");
@@ -209,9 +212,9 @@ export default function AdminPage() {
               placeholder="Admin API key"
               value={apiKey}
               onChange={(e) => setApiKey(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && apiKey && setAuthenticated(true)}
+              onKeyDown={(e) => e.key === "Enter" && apiKey && handleAuthenticate()}
             />
-            <Button onClick={() => setAuthenticated(true)} disabled={!apiKey} className="w-full">
+            <Button onClick={handleAuthenticate} disabled={!apiKey} className="w-full">
               Access Admin Panel
             </Button>
           </CardContent>

@@ -88,7 +88,8 @@ export async function POST(
       data: {
         betId: id,
         action: "FINALIZE_ONCHAIN",
-        adminIdentity: request.headers.get("x-admin-api-key")?.slice(0, 8) + "...",
+        // Never persist any part of the shared credential in the audit log.
+        adminIdentity: "shared-admin-key",
         statusBefore, statusAfter: "FINALIZED",
         evidenceHash: bet.evidenceHash,
         details: JSON.stringify({

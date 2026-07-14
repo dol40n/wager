@@ -3,6 +3,7 @@ import { prisma } from "@/lib/db";
 import { validateCronAuth } from "@/lib/validators";
 import { computeBetIdHash, deriveBetPDA, deriveVaultPDA, getConnection } from "@/lib/solana/program";
 import { parseBetAccount, BET_STATUS_DB } from "@/lib/solana/account-layout";
+import { shouldAdoptChainStatus } from "@/lib/solana/reconciliation";
 
 const CONCURRENCY = 4;
 // Non-terminal DB statuses: these can silently diverge from chain if a TX
@@ -33,7 +34,10 @@ async function reconcileOne(bet: BetRow) {
   const chainStatus = BET_STATUS_DB[parsed.status];
   const updates: Record<string, unknown> = {};
 
-  if (chainStatus && chainStatus !== bet.status) {
+  // Resolution and user disputes are recorded in the DB before they are
+  // published on-chain. Adopt forward/terminal chain transitions, but never
+  // regress that newer application state to a deliberately lagging status.
+  if (chainStatus && shouldAdoptChainStatus(bet.status, chainStatus)) {
     updates.status = chainStatus;
     // Chain settled but DB lagged — backfill the winner so the UI is correct.
     if (chainStatus === "FINALIZED" && bet.proposedWinner && !bet.finalWinner) {

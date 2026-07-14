@@ -16,7 +16,9 @@ cargo +stable update unicode-segmentation@1.13.2 --precise 1.12.0 2>/dev/null ||
 # Downgrade lockfile format from v4 (written by stable Cargo) back to v3
 # (required by the Solana BPF toolchain's Cargo 1.75)
 if head -3 Cargo.lock | grep -q 'version = 4'; then
-  sed -i '' 's/^version = 4$/version = 3/' Cargo.lock
+  # `sed -i.bak` works with both BSD sed (macOS) and GNU sed (CI).
+  sed -i.bak 's/^version = 4$/version = 3/' Cargo.lock
+  rm -f Cargo.lock.bak
   echo "Lockfile downgraded from v4 to v3"
 fi
 

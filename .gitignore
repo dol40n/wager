@@ -1,6 +1,4 @@
-# See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
-
-# dependencies
+# Dependencies
 /node_modules
 /.pnp
 .pnp.*
@@ -10,59 +8,73 @@
 !.yarn/releases
 !.yarn/versions
 
-# testing
+# Test and build output
 /coverage
-
-# next.js
 /.next/
 /out/
-
-# production
 /build
+*.tsbuildinfo
+next-env.d.ts
 
-# misc
-.DS_Store
+# Environment files and credentials
+.env*
+!.env.example
 *.pem
+*.key
+*.p12
+*.pfx
+id.json
+wallet.json
+keypair.json
+*keypair*.json
+resolver-authority*.json
 
-# debug
+# Logs, database dumps and backups
+*.log
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 .pnpm-debug.log*
+*.dump
+*.backup
+*.sql
+*.sql.gz
+*.sqlite
+*.sqlite3
+*.sqlite-*
+*.sqlite3-*
+*.db
+*.db-*
+!prisma/migrations/**/migration.sql
+dumps/
+backups/
 
-# env files
-.env
-.env.local
-.env.production
-
-# vercel
-.vercel
-
-# typescript
-*.tsbuildinfo
-next-env.d.ts
-
-# solana / anchor
+# Solana / Anchor output
 .anchor/
 target/debug/
 target/release/
+# The already-tracked wager_escrow.so is a bankrun fixture; other deploy output stays local.
+target/deploy/
 target/sbf-solana-solana/
 target/sbpf-solana-solana/
 target/.rustc_info.json
-target/deploy/wager_escrow-keypair.json
 
-# rust
-Cargo.lock is committed for reproducible builds
+# Vercel and operating-system metadata
+.vercel/
+.DS_Store
 
-# claude-flow
-.claude-flow/
+# Local automation metadata
 .claude/
+.claude-flow/
+.codex/
 .mcp.json
-
-.env*
-
-# private working docs (sale strategy, etc.) — never transfer to a buyer
-*.private.md
-# sale / data-room materials — shared deliberately, not bundled with the code
-dataroom/
 .playwright-mcp/
+CLAUDE.md
+CODEX.md
+AGENTS.md
+
+# Local-only notes and private artifacts
+*.private.md
+dataroom/
+
+# Cargo.lock is committed for reproducible application builds.

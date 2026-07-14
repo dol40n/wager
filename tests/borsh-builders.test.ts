@@ -49,12 +49,6 @@ function idlIx(name: string) {
 
 describe("Borsh transaction builder verification against IDL", () => {
   const PROGRAM_ID = new PublicKey(IDL.address);
-  const maker = PublicKey.unique();
-  const taker = PublicKey.unique();
-  const resolver = PublicKey.unique();
-  const betPDA = PublicKey.unique();
-  const vaultPDA = PublicKey.unique();
-  const feeWallet = PublicKey.unique();
 
   describe("discriminators match IDL", () => {
     const builders = [

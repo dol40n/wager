@@ -51,9 +51,9 @@ export async function settleOnChain(input: SettleInput, feeWalletKey: PublicKey)
   const [betPDA] = deriveBetPDA(betIdHash);
   const [vaultPDA] = deriveVaultPDA(betPDA);
 
-  // Read the on-chain account + status FIRST. An already-finalized bet has a
-  // drained vault (balance 0), so the "vault empty" guard below must not run
-  // before we recognize FINALIZED as an idempotent no-op (safe to retry).
+  // Read the on-chain account + status first. FINALIZED is handled as a retry
+  // success before the empty-vault guard, but this branch does not independently
+  // re-verify the final winner or the vault postcondition.
   const accountInfo = await connection.getAccountInfo(betPDA);
   if (!accountInfo) {
     return { success: false, txSignatures, vaultBefore: 0, vaultAfter: 0, winnerReceived: 0, feeReceived: 0, error: "Bet PDA not found on-chain" };
@@ -63,7 +63,7 @@ export async function settleOnChain(input: SettleInput, feeWalletKey: PublicKey)
   const vaultBefore = await connection.getBalance(vaultPDA);
   console.log(`[settle] Bet ${input.betId}: on-chain=${STATUS_NAMES[statusByte] || "Unknown"}, vault=${vaultBefore}`);
 
-  // Already finalized — idempotent success (vault already drained on the prior run).
+  // Already finalized — no second payout transaction is submitted.
   if (statusByte === 4) {
     return { success: true, txSignatures, vaultBefore, vaultAfter: vaultBefore, winnerReceived: 0, feeReceived: 0, error: "Already finalized" };
   }

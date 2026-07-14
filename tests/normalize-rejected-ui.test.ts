@@ -92,7 +92,6 @@ describe("date formatting in output", () => {
 
   it("Russian localized format is NOT valid ISO", () => {
     const bad = "26.05.2026 07:20:00";
-    const d = new Date(bad);
     // This may parse in some locales but is not ISO
     const isIso = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/.test(bad);
     expect(isIso).toBe(false);

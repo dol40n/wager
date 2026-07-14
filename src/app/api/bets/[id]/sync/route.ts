@@ -8,6 +8,7 @@ import {
   getConnection,
 } from "@/lib/solana/program";
 import { parseBetAccount, BET_STATUS_DB } from "@/lib/solana/account-layout";
+import { shouldAdoptChainStatus } from "@/lib/solana/reconciliation";
 import { PROGRAM_ID } from "@/lib/constants";
 
 export async function POST(
@@ -78,7 +79,7 @@ export async function POST(
         const parsed = parseBetAccount(accountInfo.data);
         const chainStatus = BET_STATUS_DB[parsed.status];
 
-        if (chainStatus && chainStatus !== bet.status) {
+        if (chainStatus && shouldAdoptChainStatus(bet.status, chainStatus)) {
           updates.status = chainStatus;
         }
 

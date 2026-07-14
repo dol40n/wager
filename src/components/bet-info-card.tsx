@@ -171,7 +171,11 @@ export function BetInfoCard({ bet }: { bet: BetDetailData }) {
               )}
             </div>
             <p className="text-xs text-muted-foreground">
-              {disputeCountdown === "Expired"
+              {bet.status === "FINALIZED"
+                ? "This wager is recorded as finalized; no further automatic payout is pending."
+                : TERMINAL_STATUSES.includes(bet.status)
+                ? "This wager is in a terminal application state."
+                : disputeCountdown === "Expired"
                 ? `Dispute window closed. Payout will finalize automatically. Winner receives ${(pot - feeAmount).toFixed(4)} SOL (${feePct}% fee).`
                 : `Either party can dispute within this window. After that, payout finalizes automatically. Winner receives ${(pot - feeAmount).toFixed(4)} SOL (${feePct}% fee).`}
             </p>

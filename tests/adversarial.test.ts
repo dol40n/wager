@@ -3,7 +3,7 @@ import { normalizeRequestSchema, createBetSchema } from "@/lib/validators";
 import { canonicalizeEvidence } from "@/lib/ai/resolver";
 import { hashEvidence } from "@/lib/utils";
 import { REJECTED_TOPICS, MAX_STAKE_LAMPORTS } from "@/lib/constants";
-import type { EvidenceItem, ResolveResult } from "@/types";
+import type { EvidenceItem } from "@/types";
 import { z } from "zod";
 
 const resolveResultSchema = z.object({

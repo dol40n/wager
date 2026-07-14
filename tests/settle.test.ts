@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
-import { Keypair, PublicKey } from "@solana/web3.js";
+import { Keypair } from "@solana/web3.js";
 import { readOnChainStatus, settleOnChain } from "@/lib/solana/settle";
 import * as program from "@/lib/solana/program";
 
@@ -117,7 +117,7 @@ describe("settleOnChain idempotency", () => {
     };
   }
 
-  it("returns idempotent success for an already-finalized bet (status=4, vault drained)", async () => {
+  it("returns retry success for an already-finalized bet without another payout", async () => {
     const conn = mockConnection({ statusByte: 4, vaultBalance: 0 });
     vi.spyOn(program, "getConnection").mockReturnValue(conn as never);
     vi.spyOn(program, "getResolverKeypair").mockReturnValue(Keypair.generate());

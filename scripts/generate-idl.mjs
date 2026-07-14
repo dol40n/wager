@@ -1,8 +1,7 @@
 #!/usr/bin/env node
-// Generates the IDL JSON from the Rust program source.
-// This is required because Anchor 0.30.1's `anchor idl build` is broken
-// with proc-macro2 >= 1.0.80 (source_file() removed). See:
-// https://github.com/coral-xyz/anchor/issues/3042
+// Generates the checked-in IDL for the repository's pinned Anchor stack.
+// Instruction/account layouts below are maintained manually; only the program
+// ID is read from Rust, so Rust ABI changes require an explicit generator update.
 //
 // Discriminators are computed as sha256("global:<instruction_name>")[0..8]
 // and sha256("account:<AccountName>")[0..8], matching Anchor's convention.

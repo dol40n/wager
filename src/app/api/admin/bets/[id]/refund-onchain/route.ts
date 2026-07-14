@@ -51,11 +51,14 @@ export async function POST(
 
     const vaultBalance = await connection.getBalance(vaultPDA);
 
-    // The on-chain refund_if_expired_or_unresolved requires a 7-day timeout.
-    // For admin-initiated refund before timeout, we mark the DB and document
-    // that on-chain refund must be executed after the timeout passes.
-    // If the bet is OPEN (not accepted), the maker can cancel on-chain via cancel_unaccepted_bet.
+    // This legacy route records only an application-state decision. It does not
+    // decode the bet account or submit an on-chain instruction.
     const statusBefore = bet.status;
+    const onChainNote = vaultBalance === 0
+      ? "Vault is empty, but this route did not verify the on-chain bet status."
+      : statusBefore === "RESULT_PROPOSED"
+      ? "Vault still holds funds. The Anchor refund instruction does not accept ResultProposed; a reviewed on-chain transition is required."
+      : "Vault still holds funds. On-chain refund requires the 7-day timeout, or maker cancellation while the wager remains Open."
 
     await prisma.bet.update({
       where: { id },
@@ -69,7 +72,8 @@ export async function POST(
       data: {
         betId: id,
         action: "REFUND_DB",
-        adminIdentity: request.headers.get("x-admin-api-key")?.slice(0, 8) + "...",
+        // Never persist any part of the shared credential in the audit log.
+        adminIdentity: "shared-admin-key",
         statusBefore,
         statusAfter: "REFUNDED",
         evidenceHash: bet.evidenceHash,
@@ -77,9 +81,7 @@ export async function POST(
           vault_balance: vaultBalance,
           maker: bet.maker.pubkey,
           taker: bet.taker?.pubkey || null,
-          note: vaultBalance > 0
-            ? "DB refunded. On-chain vault still holds funds. Execute refund_if_expired_or_unresolved after 7-day timeout, or cancel_unaccepted_bet if no taker."
-            : "DB refunded. Vault is empty.",
+          note: onChainNote,
         }),
       },
     });
@@ -88,9 +90,7 @@ export async function POST(
       bet_id: id,
       status: "REFUNDED",
       vault_balance_sol: lamportsToSol(vaultBalance),
-      on_chain_note: vaultBalance > 0
-        ? "Vault still holds funds. On-chain refund requires 7-day timeout (refund_if_expired_or_unresolved) or maker cancel (cancel_unaccepted_bet if OPEN)."
-        : "Vault is empty. No on-chain action needed.",
+      on_chain_note: onChainNote,
     });
   } catch (error) {
     console.error(`[admin-onchain] Refund error for bet ${id}:`, error);
