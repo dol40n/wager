@@ -1,7 +1,7 @@
 import * as anchor from "@coral-xyz/anchor";
 import { Program } from "@coral-xyz/anchor";
 import {
-  Keypair, PublicKey, SystemProgram, LAMPORTS_PER_SOL, Connection,
+  Keypair, PublicKey, SystemProgram, LAMPORTS_PER_SOL,
 } from "@solana/web3.js";
 import { expect } from "chai";
 import { createHash } from "crypto";

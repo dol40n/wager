@@ -47,6 +47,7 @@ export function statusLabel(status: string): string {
 }
 
 export function hashEvidence(evidenceJson: string): Buffer {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports -- Keep Node crypto out of client bundles that import other utilities from this module.
   const { createHash } = require("crypto");
   return createHash("sha256").update(evidenceJson).digest();
 }

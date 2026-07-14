@@ -2,7 +2,7 @@ import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import { AlertTriangle, Zap, Shield, Brain } from "lucide-react";
+import { AlertTriangle, Database, Search, Shield } from "lucide-react";
 
 export default function Home() {
   return (
@@ -12,8 +12,8 @@ export default function Home() {
           Wager
         </h1>
         <p className="text-xl text-muted-foreground max-w-2xl mx-auto">
-          AI-powered peer-to-peer wagers on Solana. Create a bet on any topic,
-          share a Blink link, and let AI resolve the outcome.
+          P2P wager escrow on Solana devnet. Wallet-signed transactions move
+          test SOL through a PDA while the backend coordinates evidence and settlement.
         </p>
         <div className="flex gap-3 justify-center">
           <Link href="/create">
@@ -31,19 +31,19 @@ export default function Home() {
         <AlertTriangle className="h-4 w-4" />
         <AlertDescription>
           This is experimental devnet software. All bets use devnet SOL only.
-          Do not send real funds. AI resolution is not guaranteed to be correct.
+          Do not send real funds. Automated resolution is not guaranteed to be correct.
         </AlertDescription>
       </Alert>
 
       <div className="grid md:grid-cols-3 gap-6 mb-12">
         <Card>
           <CardHeader>
-            <Brain className="h-8 w-8 mb-2 text-primary" />
-            <CardTitle>AI Normalization</CardTitle>
+            <Database className="h-8 w-8 mb-2 text-primary" />
+            <CardTitle>Backend Workflow</CardTitle>
           </CardHeader>
           <CardContent className="text-sm text-muted-foreground">
-            Describe your wager in plain English. AI converts it into precise
-            YES/NO conditions with objective resolution criteria.
+            PostgreSQL state, scheduled jobs and Solana reconciliation coordinate
+            each wager from creation through final settlement.
           </CardContent>
         </Card>
         <Card>
@@ -53,17 +53,17 @@ export default function Home() {
           </CardHeader>
           <CardContent className="text-sm text-muted-foreground">
             Funds are held in a Solana PDA escrow, not a platform wallet.
-            Built-in dispute windows and refund paths protect both parties.
+            Dispute and refund workflows remain experimental and devnet-only.
           </CardContent>
         </Card>
         <Card>
           <CardHeader>
-            <Zap className="h-8 w-8 mb-2 text-primary" />
-            <CardTitle>Solana Blinks</CardTitle>
+            <Search className="h-8 w-8 mb-2 text-primary" />
+            <CardTitle>Evidence Pipeline</CardTitle>
           </CardHeader>
           <CardContent className="text-sm text-muted-foreground">
-            Share a single link. The taker accepts and funds their side
-            through a Solana Action — no app install needed.
+            Market APIs, web search and AI-assisted checks produce an evidence-backed
+            proposal before the application dispute window.
           </CardContent>
         </Card>
       </div>
@@ -75,13 +75,13 @@ export default function Home() {
         <CardContent>
           <ol className="list-decimal pl-5 space-y-2 text-sm text-muted-foreground">
             <li>Describe your wager in natural language</li>
-            <li>AI normalizes it into precise YES/NO conditions</li>
+            <li>Normalize it into precise YES/NO conditions</li>
             <li>Review and confirm the normalized conditions</li>
             <li>Fund your side of the escrow with devnet SOL</li>
             <li>Share the Blink link with your counterparty</li>
             <li>Taker accepts and funds their side via the Blink</li>
-            <li>After the deadline, AI gathers evidence and proposes a result</li>
-            <li>24-hour dispute window opens</li>
+            <li>After the deadline, the resolver gathers evidence and proposes a result</li>
+            <li>A 24-hour application-level dispute window opens</li>
             <li>If no dispute, payout is finalized automatically</li>
             <li>If disputed, an admin reviews and finalizes</li>
           </ol>

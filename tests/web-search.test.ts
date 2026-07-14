@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect } from "vitest";
 
 // Test multiSearch dedup logic without network calls
 // Import the function directly — searchWeb will short-circuit because TAVILY_API_KEY is unset

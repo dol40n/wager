@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useCallback, useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { useWallet, useConnection } from "@solana/wallet-adapter-react";
 import dynamic from "next/dynamic";
@@ -58,8 +58,18 @@ export function BetDetail({ bet }: { bet: BetDetailData }) {
   const [syncing, setSyncing] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [txSig, setTxSig] = useState<string | null>(null);
+  const [currentTime, setCurrentTime] = useState(() => Date.now());
 
-  useStatusPolling(bet.id, bet.status, () => router.refresh());
+  useEffect(() => {
+    const timer = window.setInterval(
+      () => setCurrentTime(Date.now()),
+      POLL_INTERVAL_MS
+    );
+    return () => window.clearInterval(timer);
+  }, []);
+
+  const refreshBet = useCallback(() => router.refresh(), [router]);
+  useStatusPolling(bet.id, bet.status, refreshBet);
 
   const blinkUrl = `${APP_URL}/api/actions/bet/${bet.id}`;
   const stakeSol = lamportsToSol(Number(bet.stakeLamports));
@@ -201,7 +211,7 @@ export function BetDetail({ bet }: { bet: BetDetailData }) {
   const canDispute =
     bet.status === "RESULT_PROPOSED" &&
     bet.disputeDeadlineUtc &&
-    new Date(bet.disputeDeadlineUtc).getTime() > Date.now();
+    new Date(bet.disputeDeadlineUtc).getTime() > currentTime;
 
   return (
     <div className="space-y-6">

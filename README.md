@@ -1,222 +1,227 @@
-# Wager — AI-Powered P2P Bet Escrow on Solana
+# Wager
 
-> **⚠️ Experimental devnet software. Do not use real funds. Not mainnet-ready.**
+Wager is a P2P wager escrow prototype on Solana devnet. A Next.js API and
+PostgreSQL workflow coordinate transaction construction, external evidence,
+scheduled resolution and DB/chain reconciliation; an Anchor program holds the
+escrow and enforces payout state transitions.
 
-Universal AI-powered peer-to-peer wager escrow on Solana devnet. Users create bets in
-natural language, an AI normalizes them into a precise YES/NO condition, funds go into a
-PDA escrow, the counterparty accepts via Blink or wallet, an AI resolver determines the
-outcome with evidence, and an auto-finalize cron settles the on-chain payout.
+AI-assisted condition normalization and evidence-based resolution are separate
+components of the backend, not a decentralization or correctness guarantee.
 
-- **Live (devnet):** https://wager-smoky.vercel.app
-- **Program:** `7fQ9Dh4iNrp2mfjtBthqrmrcYZXhSaCVZcyXVuCs6hFN`
-- **Resolver authority:** `2K8jv4HT8Er7fSTEtJ3yAzqUJoQ6eLiRPYxYW9KTmECa`
-- **Status:** Private beta (devnet only)
+## Status
 
-## Screenshots
+- Experimental and unaudited.
+- Solana devnet only.
+- Not mainnet-ready.
+- Do not use real funds or send mainnet SOL.
+- No active hosted demo; the former Vercel deployment is offline.
 
-| Create a bet in plain English → AI normalizes it into a precise, sourced market |
-|:--:|
-| ![AI normalization](docs/screenshots/ai-normalization.png) |
+## Demo
 
-| Landing | Resolved bet — evidence + on-chain hash |
-|:--:|:--:|
-| ![Home](docs/screenshots/home.png) | ![Resolved bet with on-chain proof](docs/screenshots/resolved-onchain.png) |
+- Devnet program:
+  [`7fQ9…hFN`](https://explorer.solana.com/address/7fQ9Dh4iNrp2mfjtBthqrmrcYZXhSaCVZcyXVuCs6hFN?cluster=devnet)
+- Example finalized settlement:
+  [`3TQ9…nwiT`](https://explorer.solana.com/tx/3TQ9QiCWir12rgFhyuEGQ4CvLtLMHe2v8JNMCmjBjYLumA1UxqQx6wYsnNnDPSGmMwpiRDASTyXjUiYZU9wVnwiT?cluster=devnet)
+- Validation record: [`docs/DEVNET_VALIDATION.md`](docs/DEVNET_VALIDATION.md)
+
+The program account and the example transaction were rechecked through the
+public devnet RPC on 2026-07-14. Historical transaction proof does not establish
+that the deployed binary exactly matches the current source.
+
+![Historical resolved-wager UI](docs/screenshots/resolved-onchain.png)
+
+Historical UI snapshot from May 2026; the screenshot is not proof of a current
+deployment or of the source-to-program binary relationship.
+
+## What it demonstrates
+
+- REST-style API design with Next.js route handlers.
+- PostgreSQL data modeling and atomic operations through Prisma.
+- Server-side fee calculation and transaction construction.
+- Integration with Solana RPC, an Anchor program and wallet-signed transactions.
+- Coordination of off-chain workflow state with on-chain escrow state.
+- Retry-aware settlement and duplicate-payout prevention.
+- Scheduled resolution, finalization, reconciliation and maintenance jobs.
+- External API adapters for market data, web evidence and model-assisted logic.
+- Vercel deployment/cron configuration and a separate Anchor test image.
+- Request/output validation, rate limiting and explicit error paths.
+- Unit, integration, bankrun and local-validator test layers.
 
 ## Architecture
 
-```
-Frontend (Next.js) → API Routes → Prisma / PostgreSQL (Neon)
-                                 → Anthropic Claude (normalize · resolve · adversarial challenger)
-                                 → Tavily web search (evidence)
-                                 → Binance / CoinGecko (price snapshots)
-                                 → Solana devnet (PDA escrow)
-                                 → Solana Actions / Blinks (taker acceptance)
-```
-
-## Tech Stack
-
-- **Frontend:** Next.js 16, TypeScript, Tailwind CSS, shadcn/ui, Solana wallet adapter (Phantom/Solflare)
-- **Backend:** Next.js API routes, Prisma ORM, PostgreSQL (Neon)
-- **AI:** Anthropic Claude — Sonnet for resolution, Haiku for adversarial verification
-- **Evidence:** Tavily web search (advanced depth), Binance/CoinGecko price snapshots
-- **Blockchain:** Solana devnet, Anchor 0.30.1 program, PDA escrow, Solana Actions/Blinks
-- **Hosting:** Vercel (5 scheduled crons)
-
-## Core Flow
-
-1. **Create** — describe a bet in natural language (`/create`)
-2. **Normalize** — AI converts it to a precise YES/NO condition; rejects ambiguous/unfalsifiable wagers
-3. **Fund** — maker deposits stake into the PDA escrow
-4. **Share** — copy the Blink URL to a counterparty
-5. **Accept** — taker deposits a matching stake (Blink or wallet)
-6. **Resolve** — after the deadline, the resolver gathers evidence and proposes a winner
-7. **Dispute window** — 24h for either party (or the resolver) to dispute
-8. **Finalize** — undisputed bets auto-settle on-chain; disputed ones go to admin review
-
-## Fees
-
-| Category | Stake | Fee |
-|----------|-------|-----|
-| Crypto | < 5 SOL / ≥ 5 SOL | 1% / 0.75% |
-| Non-crypto | < 0.25 / 0.25–0.99 / 1–4.99 / ≥ 5 SOL | 3% / 2% / 1% / 0.75% |
-| VIP | any | 0.5% flat |
-
-Fees are computed server-side (client values ignored). Non-crypto has a $0.20 USD floor.
-VIP is auto-promoted by volume (10+ finalized bets or 50+ SOL) via a weekly cron.
-
-## Resolution Pipeline
-
-```
-deterministic (crypto/sports API) → direct finalize (0.99 confidence)
-non-deterministic → AI resolve (Sonnet) → confidence:
-   < 0.80      → manual review
-   0.80–0.93   → adversarial challenge (Haiku) → disagrees → manual review
-                                                → agrees    → proceed
-   > 0.93      → proceed
-after dispute window → auto-finalize cron
+```mermaid
+flowchart LR
+    Wallet["Wallet / Blink"] --> API["Next.js API routes"]
+    Cron["Vercel Cron"] --> API
+    API --> DB["PostgreSQL via Prisma"]
+    API --> Sources["Anthropic / Tavily / market APIs"]
+    API --> RPC["Solana devnet RPC"]
+    RPC --> Program["Anchor program"]
+    Program --> Vault["PDA escrow"]
 ```
 
-The adversarial challenger uses a different model family (Haiku vs Sonnet) to reduce
-correlated failures and checks for wording ambiguity, edge cases, evidence gaps, and
-timeline attacks.
+PostgreSQL owns the application workflow and evidence records. The Anchor
+account owns escrow-critical state and the vault PDA owns devnet SOL. A polling
+reconciliation job repairs selected non-terminal database fields from Solana.
 
-## Prerequisites
+See [`ARCHITECTURE.md`](ARCHITECTURE.md) for state ownership, trust boundaries
+and the exact settlement sequence.
 
-- Node.js 20+
-- PostgreSQL database
-- Anthropic API key (and Tavily API key for web-search evidence)
-- Solana CLI + Anchor + Rust toolchain (only to build/deploy the on-chain program — see `TOOLCHAIN.md`)
+## Core flow
 
-## Quick Start
+1. The maker submits free text for optional AI-assisted normalization into
+   explicit YES/NO definitions and resolution criteria.
+2. The create API validates the payload, snapshots supported crypto prices,
+   calculates fees server-side and stores the PostgreSQL record.
+3. The backend builds the expected initialize-and-fund transaction and the maker
+   signs it; the stake moves to a PDA vault.
+4. After the application observes maker funding, the taker signs an accept
+   transaction through the application or a Solana Action/Blink. The program
+   transfers the taker stake, but does not independently enforce an exact prior
+   maker deposit; that on-chain invariant gap is a mainnet blocker.
+5. After the deadline, the resolver gathers API/web evidence and stores a result
+   proposal plus a SHA-256 evidence hash in PostgreSQL.
+6. A 24-hour application-level dispute window runs. Disputes are recorded in
+   PostgreSQL; this is distinct from the program's on-chain dispute deadline.
+7. Eligible proposals are settled on-chain. For a newly executed finalization,
+   PostgreSQL is marked `FINALIZED` only after transaction confirmation and an
+   empty-vault check. The already-finalized retry path has narrower checks.
+
+The current resolver is centralized and can use a privileged dispute/finalize
+sequence. This is explicitly a mainnet blocker.
+
+## Tech stack
+
+- Next.js 16, React 19 and TypeScript.
+- PostgreSQL with Prisma 5.
+- Solana Web3.js, Solana Actions/Blinks and wallet adapters.
+- Rust and Anchor 0.30.1.
+- Anthropic SDK for normalization, resolution and a secondary challenge step.
+- Tavily for web evidence; Binance and CoinGecko for supported price lookups.
+- Vercel and five configured Vercel Cron schedules.
+- Vitest, Solana Bankrun, Mocha and Chai.
+- Tailwind CSS and Radix UI components.
+
+## API
+
+| Group | Representative endpoints | Responsibility |
+|---|---|---|
+| Bets | `GET /api/bets`, `GET /api/bets/:id`, `POST /api/bets/create` | Query and create application records |
+| Normalization | `POST /api/bets/normalize` | Validate and normalize wager conditions |
+| Transactions | `POST /api/bets/:id/fund-maker/tx`, `POST /api/actions/bet/:id/accept` | Build wallet-signed Solana transactions |
+| Synchronization | `POST /api/bets/:id/sync` | Read selected program/vault state into PostgreSQL |
+| Disputes | `POST /api/bets/:id/dispute` | Record a claimed-participant dispute in the application workflow |
+| Resolver | `POST /api/resolver/run[/:id]`, `GET /api/resolver/evidence/:id` | Produce and inspect resolution evidence |
+| Admin | `POST /api/admin/bets/:id/finalize-onchain` | Coordinate privileged final settlement |
+| Operations | `/api/cron/*`, `GET /api/health` | Scheduled work and dependency health checks |
+
+The route named `refund-onchain` currently records a database refund but does
+not submit the Anchor refund instruction. It is documented as a known blocker,
+not advertised as an atomic refund API. If the chain is already
+`ResultProposed`, the program refund instruction cannot recover it directly.
+
+## Reliability and security
+
+- Fee tiers are recalculated by the create API; client `fee_bps` is ignored.
+- Zod validates core normalize, create, dispute and finalize payloads and model
+  outputs. Some transaction/sync inputs still use manual checks.
+- Create and normalize use an atomic PostgreSQL fixed-window limiter keyed by IP
+  and, for create, wallet. The limiter fails open during DB outages.
+- Settlement re-reads on-chain state and resumes from accepted, proposed or
+  disputed states. Program status checks prevent a duplicate payout, but this
+  is a retry-aware flow rather than a general exactly-once API.
+- Newly executed finalization updates PostgreSQL only after Solana confirmation
+  and a drained-vault check. An already-finalized retry does not independently
+  recheck the final winner or vault postcondition.
+- On-demand and scheduled reconciliation poll status, taker and maker-funding
+  drift. They correct early workflow state and adopt terminal chain truth
+  without regressing newer application-only proposal/dispute state, but are not
+  an event projection.
+- Canonicalized evidence is committed to Solana as SHA-256; evidence content
+  remains off-chain.
+- Admin/cron comparisons are timing-safe, but authentication still relies on
+  shared secrets and a single resolver key.
+- The dispute route matches a supplied public key to a participant but does not
+  verify wallet ownership with a signature. This is a mainnet blocker.
+- The program is unaudited and has known on-chain invariant gaps that must be
+  fixed before any mainnet consideration.
+
+Read the full self-assessment in [`SECURITY_REVIEW.md`](SECURITY_REVIEW.md).
+
+## Testing
+
+Install the locked dependency graph, then run:
 
 ```bash
-npm install
-cp .env.example .env       # fill in the values below
-npx prisma db push         # create the schema
-npm run dev                # http://localhost:3000
+npm ci
+npm run typecheck
+npm run lint
+npm test
+npm run build
 ```
 
-### Environment variables
+`npm test` covers backend utilities, validation, fee logic, mirrored resolver
+rule expectations, transaction-encoding and IDL conventions, settlement
+behavior and a bankrun program test. On 2026-07-14 the suite passed 301 tests in
+23 files; the separate local-validator suite passed 20 tests. These counts are
+a dated verification record, not a permanently fixed metric.
 
-```
-DATABASE_URL, ANTHROPIC_API_KEY, TAVILY_API_KEY,
-WAGER_PROGRAM_ID, RESOLVER_AUTHORITY_PRIVATE_KEY, FEE_WALLET,
-ADMIN_API_KEY, CRON_SECRET,
-NEXT_PUBLIC_SOLANA_RPC_URL, NEXT_PUBLIC_APP_URL, NEXT_PUBLIC_BUG_REPORT_URL
-```
-
-## Scripts
+The Anchor local-validator suite needs the pinned Rust/Solana/Anchor toolchain:
 
 ```bash
-npm run dev          # dev server
-npm run build        # production build (~26 routes)
-npm test             # vitest suite (296 tests, incl. a bankrun on-chain test)
-npm run typecheck    # tsc --noEmit
-npm run lint         # eslint
-npm run generate:idl # regenerate IDL from source (anchor build IDL is broken on 0.30.1)
-npm run db:studio    # Prisma Studio
+cargo-build-sbf \
+  --manifest-path programs/wager_escrow/Cargo.toml \
+  --sbf-out-dir target/deploy -- --locked
+COPYFILE_DISABLE=1 anchor test --skip-build
 ```
 
-### Building & deploying the Solana program
+The devnet smoke test is deliberately separate because it submits network
+transactions. See [`TOOLCHAIN.md`](TOOLCHAIN.md).
+
+## Local development
+
+Prerequisites: Node.js 22, npm 10 and PostgreSQL.
 
 ```bash
-bash scripts/pin-deps.sh
-cargo-build-sbf --manifest-path programs/wager_escrow/Cargo.toml --sbf-out-dir target/deploy
-solana program deploy target/deploy/wager_escrow.so \
-  --program-id target/deploy/wager_escrow-keypair.json --url devnet
+npm ci
+cp .env.example .env
+npm run db:generate
+npm run db:push
+npm run dev
 ```
 
-See `TOOLCHAIN.md` for why the IDL is generated deterministically.
+Open `http://localhost:3000`. Populate the empty secret fields in `.env` only
+for the integrations you intend to exercise. Never commit `.env` or a wallet
+keypair.
 
-## On-Chain Program (9 instructions)
+Solana CLI, Rust and Anchor are required only for rebuilding or running the
+local-validator/devnet program tests.
 
-| Instruction | Purpose |
-|-------------|---------|
-| `initialize_bet` | Create the bet PDA |
-| `fund_maker` | Maker deposits stake into the vault PDA |
-| `accept_bet` | Taker deposits a matching stake |
-| `cancel_unaccepted_bet` | Maker cancels an unfilled bet |
-| `propose_result` | Resolver proposes a winner + evidence hash |
-| `dispute_result` | Maker, taker, or resolver disputes within the window |
-| `finalize_result_after_dispute_window` | Auto-finalize undisputed bets |
-| `admin_finalize_disputed` | Admin settles a disputed bet |
-| `refund_if_expired_or_unresolved` | 50/50 (or full) refund after a 7-day timeout |
+## Known limitations
 
-Tiered fees, 24h dispute window, 10 SOL max stake, checked arithmetic, PDA `invoke_signed`
-transfers. Settlement is on-chain first; the DB is marked `FINALIZED` only after the vault
-is verified empty. `settleOnChain()` is the single idempotent path for all transitions.
+- Single resolver authority and shared-key admin authentication.
+- Application-level and on-chain dispute timing are not the same flow.
+- Dispute requests are not authenticated with a wallet signature.
+- The program does not enforce exact one-time maker funding before acceptance.
+- The API refund path can diverge from a funded on-chain vault.
+- Reconciliation is scheduled and partial rather than event-driven.
+- Rate limiting is limited in scope and deliberately fail-open.
+- Crypto resolution does not verify a historical price exactly at the deadline;
+  sports/general events rely on web evidence and model evaluation.
+- No committed Prisma migration history, independent program audit, production
+  monitoring, legal review or active public deployment.
 
-## Key API Routes
-
-| Method | Route | Description |
-|--------|-------|-------------|
-| POST | `/api/bets/normalize` | AI normalize (rate limited) |
-| POST | `/api/bets/create` | Create bet + price snapshot + fee calc (rate limited) |
-| GET  | `/api/bets` · `/api/bets/:id` | List / detail |
-| POST | `/api/bets/:id/fund-maker/tx` | Build init+fund transaction |
-| POST | `/api/bets/:id/sync` | Sync DB from on-chain state |
-| POST | `/api/bets/:id/dispute` | File a dispute |
-| GET/POST | `/api/actions/bet/:id[/accept]` | Blink metadata / accept transaction |
-| POST | `/api/admin/bets/:id/finalize-onchain` | Full on-chain settlement |
-| POST | `/api/admin/bets/:id/refund-onchain` | Refund |
-| POST | `/api/resolver/run[/:id]` | Run the resolver (admin) |
-| GET  | `/api/health` | DB + RPC + resolver-key check |
-
-> DB-only `finalize`/`refund` are intentionally disabled (HTTP 410) — settlement must go on-chain first.
-
-## Cron Jobs (Vercel)
-
-| Schedule (UTC) | Route | Purpose |
-|----------------|-------|---------|
-| `0 0 * * *` | `/api/cron/resolve` | AI-resolve bets past their deadline (3 retries) |
-| `30 0 * * *` | `/api/cron/reconcile` | Reconcile DB ↔ chain for non-terminal bets |
-| `0 1 * * *` | `/api/cron/finalize` | Auto-finalize undisputed bets past the dispute window |
-| `0 2 * * *` | `/api/cron/cleanup` | Purge expired rate-limit counters |
-| `0 3 * * 0` | `/api/cron/vip-check` | Auto-promote VIP wallets by volume |
-
-## Safety Features
-
-- Non-custodial PDA escrow; vault transfers via `invoke_signed`
-- 24h dispute window + 7-day refund timeout
-- SHA-256 evidence hash stored on-chain (canonicalized before hashing)
-- Low-confidence / conflicting results flagged for manual review
-- Adversarial AI challenger on borderline confidence
-- Atomic fixed-window rate limiting (DB-backed)
-- Server-side fee calculation; Zod validation at all boundaries
-- Timing-safe admin auth; admin actions logged with before/after status
-- Ambiguous, unfalsifiable, illegal, or unverifiable wagers rejected at normalize
-
-## Project Structure
-
-```
-src/
-├── app/
-│   ├── api/              # route handlers (bets, actions, admin, resolver, cron, health)
-│   ├── admin/ bet/[id]/ create/ dashboard/
-├── components/           # React components (bet-detail split into info/evidence) + shadcn/ui
-├── lib/
-│   ├── ai/               # normalize + resolver (+ adversarial challenger)
-│   ├── solana/           # program interaction, PDA derivation, tx builders,
-│   │                     #   account-layout (shared parser), settle (idempotent)
-│   ├── rate-limit.ts  fees.ts  price-snapshot.ts  validators.ts  utils.ts  db.ts
-programs/wager_escrow/    # Anchor Solana program (Rust)
-tests/                    # vitest suite (incl. tests/anchor/*.test.ts via bankrun)
-prisma/                   # schema
-```
+See [`docs/KNOWN_LIMITATIONS.md`](docs/KNOWN_LIMITATIONS.md) for the complete
+code-backed list and mainnet blockers.
 
 ## Documentation
 
-| File | Topic |
-|------|-------|
-| `CLAUDE.md` | Architecture & conventions (source of truth) |
-| `SECURITY_REVIEW.md` | Threat model, mainnet blockers |
-| `TOOLCHAIN.md` | Deterministic IDL, edition2024 workaround |
-| `HOSTED_BETA_REPORT.md` | Devnet tx signatures, settlement proof |
-| `BETA_KNOWN_LIMITATIONS.md` | Known limitations |
-| `DEMO_SCRIPT.md` | Demo walkthrough |
+- [`ARCHITECTURE.md`](ARCHITECTURE.md) — components, state ownership and flows.
+- [`SECURITY_REVIEW.md`](SECURITY_REVIEW.md) — threat model, findings and secret review.
+- [`TOOLCHAIN.md`](TOOLCHAIN.md) — pinned build stack, IDL generation and tests.
+- [`docs/DEVNET_VALIDATION.md`](docs/DEVNET_VALIDATION.md) — historical devnet transaction evidence.
+- [`docs/KNOWN_LIMITATIONS.md`](docs/KNOWN_LIMITATIONS.md) — current limitations and mainnet blockers.
 
-## Mainnet Blockers
+## License
 
-Independent Anchor audit · multi-sig/oracle resolver (replace single authority) ·
-admin authentication with per-user accounts/MFA · formal verification or fuzzing ·
-legal review. See `SECURITY_REVIEW.md` for the full list.
+[MIT](LICENSE)

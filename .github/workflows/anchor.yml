@@ -1,40 +1,63 @@
 name: Anchor Build & Test
 
 on:
+  workflow_dispatch:
   push:
-    branches: [main]
+    branches: [master]
   pull_request:
-    branches: [main]
+    branches: [master]
 
 env:
   SOLANA_VERSION: "1.18.26"
   ANCHOR_VERSION: "0.30.1"
-  RUST_VERSION: "1.79.0"
-  RUST_STABLE_VERSION: "stable"
   NODE_VERSION: "22"
 
+permissions:
+  contents: read
+
 jobs:
+  repository-hygiene:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          fetch-depth: 0
+
+      - name: Scan changes for generic secrets
+        uses: gitleaks/gitleaks-action@dcedce43c6f43de0b836d1fe38946645c9c638dc # v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Test named-credential guard
+        run: node scripts/check-hardcoded-secrets.mjs --self-test
+
+      - name: Reject hardcoded named credentials
+        run: node scripts/check-hardcoded-secrets.mjs
+
+      - name: Reject newly committed named credentials
+        run: npm run check:secrets:history
+
   build-and-test:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
       - name: Install Rust (stable for cargo metadata)
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Install Rust 1.79 (for lockfile generation)
-        uses: dtolnay/rust-toolchain@master
-        with:
-          toolchain: "1.79.0"
+        uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30 # stable
 
       - name: Cache Rust
-        uses: actions/cache@v4
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
           path: |
             ~/.cargo/registry
             ~/.cargo/git
             target
-          key: rust-${{ env.RUST_VERSION }}-${{ hashFiles('Cargo.lock') }}
+          key: rust-sbf-${{ env.SOLANA_VERSION }}-${{ hashFiles('Cargo.lock') }}
 
       - name: Install Solana CLI
         run: |
@@ -49,7 +72,7 @@ jobs:
           echo "$HOME/.avm/bin" >> "$GITHUB_PATH"
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: npm
@@ -60,11 +83,15 @@ jobs:
       - name: Generate keypair
         run: solana-keygen new --no-bip39-passphrase --force
 
-      - name: Pin dependencies (edition2024 workaround)
-        run: bash scripts/pin-deps.sh
-
       - name: Build program
-        run: cargo-build-sbf --manifest-path programs/wager_escrow/Cargo.toml --sbf-out-dir target/deploy
+        run: cargo-build-sbf --manifest-path programs/wager_escrow/Cargo.toml --sbf-out-dir target/deploy -- --locked
+
+      - name: Verify lockfile and bankrun fixture are up-to-date
+        run: |
+          git diff --exit-code Cargo.lock target/deploy/wager_escrow.so || {
+            echo "ERROR: Cargo.lock or the bankrun program fixture is out of date."
+            exit 1
+          }
 
       - name: Generate IDL
         run: npm run generate:idl
@@ -82,10 +109,10 @@ jobs:
   nextjs:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: npm

@@ -1,5 +1,4 @@
 import { NextResponse } from "next/server";
-import { APP_URL } from "@/lib/constants";
 
 export async function GET() {
   const payload = {

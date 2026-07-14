@@ -46,7 +46,7 @@ export async function GET(
 
     const action = {
       type: "action",
-      icon: `${APP_URL}/icon.png`,
+      icon: `${APP_URL}/wager-action.svg`,
       title: `Wager: ${bet.normalizedQuestion}`,
       description: [
         `Stake: ${stakeSol} SOL each side`,

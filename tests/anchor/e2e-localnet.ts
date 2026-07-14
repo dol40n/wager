@@ -99,7 +99,7 @@ describe("E2E localnet smoke test", () => {
     expect(betAccount.status).to.deep.equal({ open: {} });
 
     // 2. Fund maker
-    const makerBalPreFund = await provider.connection.getBalance(maker.publicKey);
+    await provider.connection.getBalance(maker.publicKey);
     await program.methods.fundMaker()
       .accounts({ bet, vault, maker: maker.publicKey, systemProgram: SystemProgram.programId })
       .signers([maker]).rpc();
@@ -108,7 +108,7 @@ describe("E2E localnet smoke test", () => {
     expect(vaultBalAfterFund).to.equal(STAKE);
 
     // 3. Accept
-    const takerBalPreAccept = await provider.connection.getBalance(taker.publicKey);
+    await provider.connection.getBalance(taker.publicKey);
     await program.methods.acceptBet()
       .accounts({ bet, vault, taker: taker.publicKey, systemProgram: SystemProgram.programId })
       .signers([taker]).rpc();

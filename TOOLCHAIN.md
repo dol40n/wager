@@ -1,69 +1,151 @@
-# Toolchain & IDL Generation
+# Toolchain and IDL Generation
 
-## Pinned Versions
+Wager pins an older Solana/Anchor stack to keep the deployed devnet program and
+its test environment repeatable with the documented dependency graph. CI and
+the Docker test image pin the web tooling to Node.js 22.
 
-| Tool | Version | Why |
-|------|---------|-----|
-| Rust (host) | stable (1.85+) | Required for `cargo metadata` — parses edition2024 crate manifests |
-| Rust (BPF) | 1.75.0 | Bundled by Solana platform-tools v1.41; cannot parse edition2024 |
-| Solana CLI | 1.18.26 | Last 1.x release; platform-tools v1.41 BPF toolchain |
-| Anchor CLI | 0.30.1 | Matches anchor-lang crate version |
-| anchor-lang | 0.30.1 | Last version compatible with solana-program 1.18.x |
-| Node.js | 22.x | LTS |
-| npm | 10.x | Ships with Node 22 |
+## Pinned versions
 
-## Why Deterministic IDL Generation
+| Tool | Version | Purpose |
+|---|---:|---|
+| Node.js | 22.x | Next.js, Prisma, Vitest and IDL tooling |
+| npm | 10.x | Lockfile-based installation |
+| Solana CLI | 1.18.26 | Program build and local validator |
+| Anchor CLI / `anchor-lang` | 0.30.1 | Program client and framework |
+| Rust host toolchain | stable | Cargo metadata and host-side tooling |
+| Rust lockfile toolchain | 1.79.0 | Compatible lockfile generation |
+| Solana BPF Rust | 1.75.0 | Bundled by platform-tools v1.41 |
 
-Anchor 0.30.1's `anchor build` and `anchor idl build` fail during IDL generation because:
+Use newer versions only as a deliberate upgrade. The constraints below apply
+to the currently pinned dependency graph; they are not a claim that every
+future Anchor/Solana combination is incompatible.
 
-1. `anchor-syn 0.30.1` calls `proc_macro2::Span::source_file()` in `src/idl/defined.rs:499`
-2. This method was removed from `proc-macro2` starting at version 1.0.80
-3. The rest of the dependency tree (via `quote >= 1.0.40`) requires `proc-macro2 >= 1.0.80`
-4. These version requirements are mutually exclusive — no valid resolution exists
+## Why the IDL is generated separately
 
-This is tracked in [anchor#3042](https://github.com/coral-xyz/anchor/issues/3042).
+The current Anchor 0.30.1 dependency combination cannot complete its normal IDL
+generation path with the resolved `proc-macro2` versions in this repository.
+The project therefore keeps IDL generation explicit instead of presenting the
+normal Anchor command as reproducible for this pinned graph.
 
-**Upgrading to Anchor 0.31+ is not viable** because:
-- Anchor 0.31.1 depends on `solana-program 2.3.0`
-- `solana-program 2.3.0` pulls `blake3 1.8.5 → digest 0.11.3 → block-buffer 0.12.0`
-- `block-buffer 0.12.0` uses edition2024, which the BPF toolchain's Cargo 1.79 cannot parse
-- Even with lockfile pinning, the BPF Cargo re-resolves and downloads the edition2024 crates
+`scripts/generate-idl.mjs` is the repository workaround. It:
 
-**The solution**: `scripts/generate-idl.mjs` computes the IDL deterministically from the Rust source using the same algorithm as Anchor:
-- Instruction discriminators: `sha256("global:<instruction_name>")[0..8]`
-- Account discriminators: `sha256("account:<AccountName>")[0..8]`
-- Account ordering, field layouts, types, and errors are transcribed from the Rust source
+- computes instruction discriminators as
+  `sha256("global:<instruction_name>")[0..8]`;
+- computes account discriminators as
+  `sha256("account:<AccountName>")[0..8]`;
+- writes a stable IDL from a manually maintained description of account order,
+  field layout, enums and errors.
 
-**Verification**: 26 tests in `tests/idl-verification.test.ts` verify every discriminator, account order, field layout, enum variant, and error code. 20 on-chain Anchor tests prove the IDL works by calling every instruction through it on `solana-test-validator`.
+The layout is not automatically extracted from Rust. Changes to an instruction,
+account or error require updating both the Rust source and generator. The
+IDL-verification tests compare the generated file with a second manually
+maintained expectation and read the program ID from Rust; they do not prove that
+the complete Rust ABI and IDL are synchronized. `target/idl/wager_escrow.json`
+is intentionally tracked because the application and tests consume it.
 
-## Dependency Pinning (edition2024 Workaround)
+`target/deploy/wager_escrow.so` is also tracked as a bankrun test fixture so
+`npm test` works without requiring every web contributor to install the Solana
+toolchain. It is a generated binary, not a release artifact or proof that the
+deployed devnet program matches current source. Program changes must rebuild it
+and review the binary diff together with the Rust and bankrun tests.
 
-The Solana BPF toolchain bundles Cargo 1.75, which cannot parse crate manifests using Rust edition 2024 (stabilized in Rust 1.85). As more crates adopt edition2024, transitive deps in the lockfile may resolve to incompatible versions.
+## Dependency pinning
 
-`scripts/pin-deps.sh` handles this:
-1. Generates `Cargo.lock` with Cargo 1.79 (produces lockfile format v3)
-2. Uses stable Cargo to downgrade `blake3` to 1.5.5 (avoids `block-buffer 0.12.0`)
-3. Downgrades lockfile version from 4 to 3 (required by BPF Cargo 1.75)
+The Solana 1.18 BPF toolchain bundles a Cargo version that cannot parse Rust
+2024 manifests. Transitive packages can therefore make a previously valid
+program fail before compilation.
 
-Run this script before `anchor build` or `cargo-build-sbf` if you get `edition2024` errors.
+`scripts/pin-deps.sh` regenerates and adjusts `Cargo.lock` for this pinned stack:
 
-## Build Commands
+1. generate the lockfile with Rust 1.79;
+2. use stable Cargo to pin `blake3` and best-effort compatible versions of
+   `proc-macro-crate`, `borsh`, `indexmap` and `unicode-segmentation`;
+3. write lockfile format 3 for the BPF Cargo toolchain.
+
+The script rewrites `Cargo.lock`. Run it intentionally and review the resulting
+diff rather than treating it as a harmless pre-test command. It resolves the
+latest compatible transitive versions available at refresh time, so CI does not
+run it. CI and the Docker image build the committed graph with `--locked` and
+verify that the resulting bankrun fixture matches the tracked `.so`.
+
+## Web application setup
 
 ```bash
-# One-time setup
+npm ci
+cp .env.example .env
+npm run db:generate
+npm run db:push
+npm run dev
+```
+
+The project currently uses `prisma db push`; there is no committed production
+migration history.
+
+## Program build
+
+One-time tool installation:
+
+```bash
 rustup install stable
 rustup install 1.79.0
 sh -c "$(curl -sSfL https://release.anza.xyz/v1.18.26/install)"
 cargo install --git https://github.com/coral-xyz/anchor avm --tag v0.30.1 --locked
-avm install 0.30.1 && avm use 0.30.1
-rustup default stable  # host Cargo must be 1.85+ for cargo metadata
-
-# Build
-bash scripts/pin-deps.sh  # fix lockfile
-cargo-build-sbf --manifest-path programs/wager_escrow/Cargo.toml --sbf-out-dir target/deploy
-npm run generate:idl
-
-# Test
-anchor test --skip-build
-npx vitest run
+avm install 0.30.1
+avm use 0.30.1
+export PATH="$HOME/.local/share/solana/install/active_release/bin:$HOME/.avm/bin:$PATH"
+solana-keygen new --no-bip39-passphrase --force
 ```
+
+Build and regenerate the IDL:
+
+```bash
+bash scripts/pin-deps.sh
+cargo-build-sbf \
+  --manifest-path programs/wager_escrow/Cargo.toml \
+  --sbf-out-dir target/deploy -- --locked
+npm run generate:idl
+git diff --exit-code -- target/idl/wager_escrow.json
+```
+
+## Test suites
+
+Web/backend and bankrun tests:
+
+```bash
+npm run typecheck
+npm run lint
+npm test
+npm run build
+```
+
+Anchor local-validator tests:
+
+```bash
+COPYFILE_DISABLE=1 anchor test --skip-build
+```
+
+`COPYFILE_DISABLE=1` prevents macOS AppleDouble metadata from entering the
+local-validator genesis archive; it is harmless on Linux.
+
+The default Anchor command is limited to the localnet Mocha suites. The devnet
+smoke test is deliberately separate because it submits network transactions:
+
+```bash
+export ANCHOR_WALLET="$HOME/.config/solana/id.json"
+anchor run test-devnet --provider.cluster devnet
+```
+
+See [`docs/DEVNET_VALIDATION.md`](docs/DEVNET_VALIDATION.md) before running it.
+
+## Docker test image
+
+The root `Dockerfile` is a reference Anchor build/test environment, not the
+production Next.js application image. It generates the IDL during the build and
+creates a disposable local-validator wallet when the container starts:
+
+```bash
+docker build -t wager-anchor-tests .
+docker run --rm wager-anchor-tests
+```
+
+Vercel builds the web application separately using `vercel.json`.
